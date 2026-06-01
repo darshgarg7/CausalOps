@@ -14,6 +14,8 @@ from typing import Any
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import AzureChatOpenAI
 from pydantic import BaseModel
+from openai import ContentFilterFinishReasonError
+
 
 from schema import (
     AgentConfig,
@@ -145,20 +147,44 @@ child_agent_chain = child_agent_prompt | low_temp_llm.with_structured_output(
     DecisionMemo
 )
 
+def _fallback_memo(state: ChildState, reason: str) -> DecisionMemo:
+    """Return a minimal memo when the LLM call fails."""
+    return DecisionMemo(
+        perspective=state["persona"],
+        strategy=f"[UNAVAILABLE - {reason}]",
+        assumptions=[],
+        risks=["Memo could not be generated; review manually."],
+        second_order_effects=[],
+        evidence_needs=["Manual analyst review required."],
+        confidence="Low",
+    )
 
 def child_agent_node(state: ChildState) -> dict[str, list[DecisionMemo]]:
     """Produce one evidence-aware decision memo from a child agent."""
 
     logger.info("Child agent [%s] synthesizing memo", state["persona"])
-    memo = child_agent_chain.invoke(
-        {
-            "persona": state["persona"],
-            "parent_persona": state["parent_persona"],
-            "focus_objective": state["focus_objective"],
-            "task_description": state["task_description"],
-        }
-    )
-    logger.info("Child agent [%s] completed memo", state["persona"])
+    try:
+        memo = child_agent_chain.invoke(
+            {
+                "persona": state["persona"],
+                "parent_persona": state["parent_persona"],
+                "focus_objective": state["focus_objective"],
+                "task_description": state["task_description"],
+            }
+        )
+        logger.info("Child agent [%s] completed memo", state["persona"])
+    except ContentFilterFinishReasonError:
+        logger.warning(
+            "Child agent [%s] blocked by content filter - using fallback memo",
+            state["persona"]
+        )
+        memo = _fallback_memo(state, "blocked by azure content filter")
+    except Exception as exc:
+        logger.error(
+            "Child agent [%s] failed unexpectedly: %s", state["persona"], exc
+        )
+        memo = _fallback_memo(state, f"unexpected error: {exc}")
+
     return {"memos": [memo]}
 
 
