@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Impact } from "@/lib/hivemind-types";
-import { fmt, type DerivedMetrics } from "@/lib/derived-metrics";
+import { fmt, isImpactWithheld, type DerivedMetrics } from "@/lib/derived-metrics";
 
 interface MetricsBarProps {
   impact: Impact;
@@ -63,21 +63,28 @@ function confidenceStyle(c: string) {
 }
 
 export function MetricsBar({ impact, runId, derived }: MetricsBarProps) {
+  const withheld = isImpactWithheld(impact);
   const ate = impact.ate ?? 0;
-  const positive = ate > 0;
-  const negative = ate < 0;
-  const TrendIcon = positive ? ArrowUpRight : negative ? ArrowDownRight : Minus;
-  const trendColor = positive
-    ? "text-emerald-300"
-    : negative
-      ? "text-rose-300"
-      : "text-muted-foreground";
+  const positive = !withheld && ate > 0;
+  const negative = !withheld && ate < 0;
+  const TrendIcon = withheld ? Minus : positive ? ArrowUpRight : negative ? ArrowDownRight : Minus;
+  const trendColor = withheld
+    ? "text-muted-foreground"
+    : positive
+      ? "text-emerald-300"
+      : negative
+        ? "text-rose-300"
+        : "text-muted-foreground";
 
   const conf = confidenceStyle(impact.confidence);
   const ConfIcon = conf.Icon;
   const reportedPValue =
     typeof impact.p_value === "number" ? `p=${impact.p_value.toPrecision(2)}` : "p unavailable";
-  const methodLabel = impact.method || "estimator unavailable";
+  const methodLabel = withheld
+    ? (impact.method?.replace(/^withheld:/, "withheld · ") ?? "estimate withheld")
+    : impact.demo_fixture
+      ? "demo SIEM fixture · patch vs lateral movement"
+      : impact.method || "estimator unavailable";
   const rowCount = typeof impact.n_rows === "number" ? impact.n_rows : derived.trajectories;
 
   // Position of ATE on a -1..+1 scale (clamped). Used to render the marker.
@@ -103,21 +110,34 @@ export function MetricsBar({ impact, runId, derived }: MetricsBarProps) {
           </div>
           <span className={cn("flex items-center gap-1 text-xs font-medium", trendColor)}>
             <TrendIcon className="h-3.5 w-3.5" aria-hidden />
-            {positive ? "above baseline" : negative ? "below baseline" : "neutral"}
+            {withheld
+              ? "no empirical estimate"
+              : positive
+                ? "above baseline"
+                : negative
+                  ? "below baseline"
+                  : "neutral"}
           </span>
         </div>
 
         <div className="mt-5 flex items-end gap-3">
           <span
-            className="font-mono text-[64px] font-thin leading-none tabular-nums text-[color:var(--neon-cyan)] text-cinematic-glow"
-            aria-label={`ATE ${fmt.ate(ate)}`}
+            className={cn(
+              "font-mono leading-none tabular-nums text-cinematic-glow",
+              withheld
+                ? "text-[40px] font-medium text-muted-foreground"
+                : "text-[64px] font-thin text-[color:var(--neon-cyan)]",
+            )}
+            aria-label={withheld ? "ATE withheld" : `ATE ${fmt.ate(ate)}`}
           >
-            {fmt.ate(ate)}
+            {fmt.ate(withheld ? null : ate)}
           </span>
-          <span className={cn("mb-2 font-mono text-sm font-medium tabular-nums", trendColor)}>
-            Δ {ate >= 0 ? "+" : ""}
-            {derived.deltaPct.toFixed(0)}%
-          </span>
+          {!withheld && (
+            <span className={cn("mb-2 font-mono text-sm font-medium tabular-nums", trendColor)}>
+              Δ {ate >= 0 ? "+" : ""}
+              {derived.deltaPct.toFixed(0)}%
+            </span>
+          )}
         </div>
 
         {/* CI band visualization */}

@@ -23,13 +23,14 @@ export interface CausalGraph {
 }
 
 export interface Impact {
-  ate: number;
+  ate: number | null;
   confidence: string;
   p_value?: number | null;
   ci_low?: number | null;
   ci_high?: number | null;
   n_rows?: number;
   method?: string;
+  demo_fixture?: boolean;
 }
 
 export interface RunResponse {
@@ -45,13 +46,29 @@ export interface RunResponse {
   agent_tier_metrics?: unknown;
 }
 
+export interface RunEnqueueResponse {
+  run_id: string;
+  status: "queued" | "running" | "completed" | "failed";
+}
+
+export interface RunStatusResponse {
+  run_id: string;
+  status: "queued" | "running" | "completed" | "failed";
+  error?: string;
+  artifact?: RunResponse;
+}
+
+export type EnqueueResult =
+  | { mode: "async"; run_id: string; status: "queued" }
+  | { mode: "sync"; run_id: string; artifact: RunResponse };
+
 export interface HistoryEntry {
   id: string;
   runId: string;
   timestamp: number;
   taskExcerpt: string;
   taskFull: string;
-  ate: number;
+  ate: number | null;
   confidence: string;
   strategyCount: number;
   payload: RunResponse;

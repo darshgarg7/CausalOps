@@ -25,6 +25,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import type { HistoryEntry } from "@/lib/hivemind-types";
+import { fmt } from "@/lib/derived-metrics";
 import { cn } from "@/lib/utils";
 
 function relTime(ts: number): string {
@@ -118,7 +119,7 @@ export function RunHistoryDrawer({
         </SheetHeader>
 
         <div className="flex-1 overflow-auto p-3">
-          {history.length === 0 ? (
+          {!open ? null : history.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground">
               <History className="h-6 w-6 opacity-50" />
               <p>No runs yet.</p>
@@ -157,7 +158,7 @@ export function RunHistoryDrawer({
                         <span title={absTime(e.timestamp)}>{relTime(e.timestamp)}</span>
                         <span className="flex items-center gap-1.5">
                           <span className={cn("h-1.5 w-1.5 rounded-full", confColor)} />
-                          <span className="font-mono">ATE {e.ate.toFixed(2)}</span>
+                          <span className="font-mono">ATE {fmt.ate(e.ate)}</span>
                         </span>
                       </div>
                       <p className="mt-1 line-clamp-2 text-sm text-foreground/90">

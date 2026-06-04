@@ -1,20 +1,29 @@
 """Execution engine for HiveMind runs.
 
 This module is the backend boundary used by the HTTP API and the legacy
-Streamlit demo. It runs the LangGraph workflow, composes a frontend-friendly
-artifact, emits deterministic tier metrics, and persists the full run record.
+Streamlit demo. It runs the Phase 2 coordinator workflow, composes a
+frontend-friendly artifact, emits deterministic tier metrics, and persists
+the full run record.
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from benchmarking import score_agent_tiers
-from graph import build_graph
+from bus.context import bind_run_context, clear_run_context, get_run_summary
+from bus.helpers import bind_from_state
+from bus.producer import set_event_loop
+from bus.publish import publish_run_event, publish_telemetry
+from coordinator.runner import execute_run
+from coordinator.store import RunRecord, get_run_store
+from demo_fixtures import is_demo_evidence, resolve_run_evidence
 
 DATA_DIR = Path("../data")
 
@@ -27,32 +36,75 @@ def serialize_pydantic(obj: Any) -> Any:
     return obj
 
 
+def new_run_id() -> str:
+    """Generate a unique run identifier."""
+
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return f"run-{stamp}-{uuid.uuid4().hex[:8]}"
+
+
 async def run_hivemind(
     task_description: str,
     evidence_records: list[dict[str, Any]] | None = None,
+    run_id: str | None = None,
 ) -> dict[str, Any]:
     """Run the full HiveMind workflow and return a persisted artifact."""
 
-    graph = build_graph()
+    resolved_run_id = run_id or new_run_id()
+    correlation_id = resolved_run_id
+    resolved_evidence, used_demo_fixture = resolve_run_evidence(evidence_records)
+    bind_run_context(resolved_run_id, correlation_id)
+    set_event_loop(asyncio.get_running_loop())
+
     initial_state = {
         "task_description": task_description,
-        "parent_configs": [],
-        "child_configs": [],
-        "memos": [],
-        "ranked_strategies": [],
-        "final_recommendation": None,
-        "evaluator_error": None,
-        "causal_payload": None,
-        "dowhy_results": None,
-        "causal_refutation_passed": False,
-        "causal_refutation_attempts": 0,
-        "evidence_records": evidence_records or [],
-        "causal_dataset_profile": None,
-        "causal_estimate_report": None,
+        "run_id": resolved_run_id,
+        "correlation_id": correlation_id,
+        "evidence_records": resolved_evidence,
     }
 
-    final_state = await graph.ainvoke(initial_state)
-    run_id = f"run-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    publish_run_event("started")
+    publish_telemetry(
+        agent_id="control",
+        tier="control",
+        phase="ORCHESTRATOR",
+        message="Run started",
+        status="running",
+    )
+
+    bus_summary: dict[str, Any] = {}
+    try:
+        final_state = await execute_run(
+            task_description=task_description,
+            evidence_records=resolved_evidence,
+            run_id=resolved_run_id,
+            correlation_id=correlation_id,
+        )
+        try:
+            record = get_run_store().get_run(resolved_run_id)
+            bus_summary = _bus_summary_from_record(record)
+        except KeyError:
+            bus_summary = get_run_summary()
+    except Exception as exc:
+        bind_from_state(initial_state)
+        publish_run_event("failed", detail=str(exc))
+        publish_telemetry(
+            agent_id="control",
+            tier="control",
+            phase="ERROR",
+            message=str(exc),
+            status="error",
+        )
+        try:
+            record = get_run_store().get_run(resolved_run_id)
+            get_run_store().set_status(record, "failed", error_detail=str(exc))
+        except KeyError:
+            pass
+        raise
+    finally:
+        clear_run_context()
+
+    run_id = final_state.get("run_id", resolved_run_id)
     DATA_DIR.mkdir(exist_ok=True)
 
     memos_raw = [serialize_pydantic(memo) for memo in final_state.get("memos", [])]
@@ -63,8 +115,8 @@ async def run_hivemind(
     dowhy_results = final_state.get("dowhy_results") or {}
     causal_estimate_report = final_state.get("causal_estimate_report") or {}
     causal_dataset_profile = final_state.get("causal_dataset_profile") or {}
-    agent_tier_metrics = score_agent_tiers(final_state)
-    ate_estimate = _safe_float(dowhy_results.get("ate_estimate"), default=0.0)
+    agent_tier_metrics = score_agent_tiers(final_state, summary=bus_summary)
+    ate_estimate = _impact_ate(causal_estimate_report, dowhy_results)
     confidence = _impact_confidence(causal_estimate_report)
 
     artifact = {
@@ -82,33 +134,98 @@ async def run_hivemind(
             "ci_high": causal_estimate_report.get("ci_high"),
             "n_rows": causal_estimate_report.get("n_rows", 0),
             "method": causal_estimate_report.get("method", "unknown"),
+            "demo_fixture": used_demo_fixture
+            or is_demo_evidence(resolved_evidence),
         },
         "causal_estimate_report": causal_estimate_report,
         "causal_dataset_profile": causal_dataset_profile,
         "agent_tier_metrics": agent_tier_metrics,
+        "bus_summary": bus_summary,
     }
 
     artifact_path = DATA_DIR / f"{run_id}.json"
     with artifact_path.open("w", encoding="utf-8") as handle:
         json.dump(artifact, handle, indent=2)
 
+    try:
+        record = get_run_store().get_run(run_id)
+        get_run_store().set_status(record, "completed")
+    except KeyError:
+        pass
+
+    bind_run_context(run_id, correlation_id)
+    try:
+        publish_telemetry(
+            agent_id="control",
+            tier="control",
+            phase="COMPLETE",
+            message="Causal loop complete",
+            status="done",
+        )
+        publish_run_event("completed")
+    finally:
+        clear_run_context()
+
     return artifact
+
+
+def load_run_artifact(run_id: str) -> dict[str, Any] | None:
+    """Load a persisted run artifact from disk."""
+
+    artifact_path = DATA_DIR / f"{run_id}.json"
+    if not artifact_path.is_file():
+        return None
+    with artifact_path.open(encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _bus_summary_from_record(record: RunRecord) -> dict[str, Any]:
+    """Derive bus_summary counters from durable run store state."""
+
+    return {
+        "parent_config_count": len(record.parent_configs),
+        "child_config_count": len(record.child_configs),
+        "memo_count": len(record.memos),
+        "has_ranked_strategies": bool(record.ranked_strategies),
+        "has_causal_payload": record.causal_payload is not None,
+        "has_estimate_report": record.causal_estimate_report is not None,
+    }
 
 
 def _strategy_card(index: int, memo: dict[str, Any]) -> dict[str, Any]:
     """Convert a raw decision memo into a compact UI strategy card."""
 
-    memo_text = _memo_text(memo)
-    lines = [line.strip() for line in memo_text.splitlines() if line.strip()]
+    perspective = str(memo.get("perspective", "") or "").strip()
+    strategy = str(memo.get("strategy", "") or "").strip()
     fallback_title = f"Strategy {index + 1}"
-    title = lines[0][:50] + ("..." if lines and len(lines[0]) > 50 else "")
+    if perspective:
+        title = perspective[:80] + ("..." if len(perspective) > 80 else "")
+    else:
+        title = fallback_title
+    summary = strategy or perspective or fallback_title
+    score_key = f"{perspective}\n{strategy}"
     return {
-        "title": title or fallback_title,
-        "summary": memo_text,
+        "title": title,
+        "summary": summary,
         "risk_score": _risk_score(memo),
-        "cost_score": _stable_score(memo_text, "cost", 0.25, 0.75),
-        "speed_score": _stable_score(memo_text, "speed", 0.25, 0.85),
+        "cost_score": _stable_score(score_key, "cost", 0.25, 0.75),
+        "speed_score": _stable_score(score_key, "speed", 0.25, 0.85),
     }
+
+
+def _impact_ate(
+    causal_estimate_report: dict[str, Any],
+    dowhy_results: dict[str, Any],
+) -> float | None:
+    """Return ATE for the UI, or None when estimation was withheld."""
+
+    method = str(causal_estimate_report.get("method", ""))
+    if method.startswith("withheld:") or causal_estimate_report.get("ate") is None:
+        return None
+    value = causal_estimate_report.get("ate", dowhy_results.get("ate_estimate"))
+    if value is None:
+        return None
+    return _safe_float(value, default=None)
 
 
 def _memo_text(memo: dict[str, Any]) -> str:
@@ -154,7 +271,7 @@ def _impact_confidence(report: dict[str, Any]) -> str:
     return "low"
 
 
-def _safe_float(value: Any, default: float) -> float:
+def _safe_float(value: Any, default: float | None = 0.0) -> float | None:
     """Convert estimator values to JSON-safe floats for the UI."""
 
     try:

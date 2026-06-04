@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { Activity, Crown, Network, ShieldCheck, X } from "lucide-react";
 import type { Impact, RunResponse } from "@/lib/hivemind-types";
-import { fmt, type DerivedMetrics } from "@/lib/derived-metrics";
+import { fmt, isImpactWithheld, type DerivedMetrics } from "@/lib/derived-metrics";
 import { cn } from "@/lib/utils";
 
 interface PresenterModeProps {
@@ -28,7 +28,8 @@ export function PresenterMode({ open, onClose, result, derived, task }: Presente
 
   if (!open) return null;
 
-  const impact: Impact = result.impact ?? { ate: 0, confidence: "" };
+  const impact: Impact = result.impact ?? { ate: null, confidence: "" };
+  const withheld = isImpactWithheld(impact);
   const ate = impact.ate ?? 0;
   const top3 = derived.ranked.slice(0, 3);
 
@@ -88,19 +89,26 @@ export function PresenterMode({ open, onClose, result, derived, task }: Presente
             </div>
             <div className="mt-5 flex items-end gap-5">
               <span
-                className="font-mono font-thin leading-none tabular-nums text-[color:var(--neon-cyan)] text-cinematic-glow"
-                style={{ fontSize: "clamp(96px, 12vw, 168px)" }}
-              >
-                {fmt.ate(ate)}
-              </span>
-              <span
                 className={cn(
-                  "mb-6 font-mono text-2xl font-light tabular-nums",
-                  ate >= 0 ? "text-emerald-300" : "text-rose-300",
+                  "font-mono leading-none tabular-nums text-cinematic-glow",
+                  withheld
+                    ? "text-5xl font-medium text-muted-foreground"
+                    : "font-thin text-[color:var(--neon-cyan)]",
                 )}
+                style={withheld ? undefined : { fontSize: "clamp(96px, 12vw, 168px)" }}
               >
-                {ate >= 0 ? "▲" : "▼"} {Math.abs(derived.deltaPct).toFixed(0)}%
+                {fmt.ate(withheld ? null : ate)}
               </span>
+              {!withheld && (
+                <span
+                  className={cn(
+                    "mb-6 font-mono text-2xl font-light tabular-nums",
+                    ate >= 0 ? "text-emerald-300" : "text-rose-300",
+                  )}
+                >
+                  {ate >= 0 ? "▲" : "▼"} {Math.abs(derived.deltaPct).toFixed(0)}%
+                </span>
+              )}
             </div>
             <div className="mt-6 flex items-center justify-between font-mono text-xs text-muted-foreground/80">
               <span>

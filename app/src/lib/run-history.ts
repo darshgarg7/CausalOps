@@ -14,7 +14,12 @@ export function loadHistory(): HistoryEntry[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((e) => e && typeof e === "object" && "runId" in e);
+    return parsed
+      .filter((e) => e && typeof e === "object" && "runId" in e)
+      .map((e) => ({
+        ...e,
+        ate: e.ate == null ? null : Number(e.ate),
+      }));
   } catch {
     return [];
   }
@@ -43,8 +48,8 @@ export function appendHistory(task: string, payload: RunResponse): HistoryEntry 
     timestamp: Date.now(),
     taskExcerpt: task.slice(0, 140),
     taskFull: task,
-    ate: payload.impact.ate,
-    confidence: payload.impact.confidence,
+    ate: payload.impact?.ate ?? null,
+    confidence: payload.impact?.confidence ?? "unknown",
     strategyCount: payload.strategies.length,
     payload,
   };

@@ -10,6 +10,9 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import AzureChatOpenAI
 from pydantic import BaseModel, Field
 
+from bus.events import ArtifactType
+from bus.helpers import bind_from_state
+from bus.publish import publish_artifact, publish_telemetry
 from schema import GraphState
 
 logger = logging.getLogger(__name__)
@@ -80,10 +83,26 @@ evaluator_chain = evaluator_prompt | structured_evaluator_llm
 def evaluate_memos_node(state: GraphState):
     """LangGraph node to evaluate and rank all collected memos."""
 
+    bind_from_state(state)
+    publish_telemetry(
+        agent_id="evaluator",
+        tier="evaluator",
+        phase="EVALUATE",
+        message="Ranking decision memos",
+        status="running",
+    )
+
     logger.info("Evaluator running")
     memos = state.get("memos", [])
     if not memos:
         logger.info("No memos found to evaluate")
+        publish_telemetry(
+            agent_id="evaluator",
+            tier="evaluator",
+            phase="EVALUATE",
+            message="No memos to evaluate",
+            status="done",
+        )
         return {
             "ranked_strategies": [],
             "final_recommendation": None,
@@ -121,6 +140,13 @@ def evaluate_memos_node(state: GraphState):
         })
     except Exception as exc:
         logger.exception("Evaluator LLM call failed")
+        publish_telemetry(
+            agent_id="evaluator",
+            tier="evaluator",
+            phase="EVALUATE",
+            message=str(exc),
+            status="error",
+        )
         return {
             "ranked_strategies": [],
             "final_recommendation": None,
@@ -128,6 +154,20 @@ def evaluate_memos_node(state: GraphState):
         }
 
     ranked_strategies = result.model_dump()
+
+    publish_artifact(
+        agent_id="evaluator",
+        tier="evaluator",
+        artifact_type=ArtifactType.RANKED_STRATEGIES,
+        payload=ranked_strategies,
+    )
+    publish_telemetry(
+        agent_id="evaluator",
+        tier="evaluator",
+        phase="EVALUATE",
+        message="Evaluator ranking complete",
+        status="done",
+    )
 
     logger.info("Evaluator completed")
     return {

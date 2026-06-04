@@ -1,4 +1,9 @@
-"""LangGraph assembly for HiveMind's investigation and causal workflow."""
+"""LangGraph assembly for HiveMind's investigation and causal workflow.
+
+Deprecated for execution in Phase 2b+: the coordinator + spawn workers drive
+parent/child fan-out. This module remains for reference and refutation routing
+used during migration tests.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +14,8 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
 from agents import child_agent_node, grand_orchestrator_node, parent_agent_node
+from bus.helpers import bind_from_state
+from bus.publish import publish_telemetry
 from causal import causal_synthesis_node, dowhy_engine_node
 from evaluator import evaluate_memos_node
 from schema import GraphState
@@ -24,6 +31,8 @@ def route_to_parents(state: GraphState) -> list[Send]:
             "parent_agent",
             {
                 "task_description": state["task_description"],
+                "run_id": state["run_id"],
+                "correlation_id": state["correlation_id"],
                 "persona": config.persona,
                 "focus_objective": config.focus_objective,
             },
@@ -35,9 +44,15 @@ def route_to_parents(state: GraphState) -> list[Send]:
 def gather_children_node(state: GraphState) -> dict:
     """Barrier node that lets dynamically produced child configs converge."""
 
-    logger.info(
-        "Gathered %s child tasks",
-        len(state.get("child_configs", [])),
+    bind_from_state(state)
+    child_count = len(state.get("child_configs", []))
+    logger.info("Gathered %s child tasks", child_count)
+    publish_telemetry(
+        agent_id="control",
+        tier="control",
+        phase="CHILDREN_GATHER",
+        message=f"Gathered {child_count} child tasks",
+        status="done",
     )
     return {}
 
@@ -50,6 +65,8 @@ def route_to_children(state: GraphState) -> list[Send]:
             "child_agent",
             {
                 "task_description": state["task_description"],
+                "run_id": state["run_id"],
+                "correlation_id": state["correlation_id"],
                 "parent_persona": config.parent_persona,
                 "persona": config.persona,
                 "focus_objective": config.focus_objective,
@@ -64,17 +81,9 @@ def conditional_refutation_check(
 ) -> Literal["end", "causal_synthesis"]:
     """Stop when refuters pass or when estimation is explicitly withheld."""
 
-    estimate_report = state.get("causal_estimate_report") or {}
-    method = str(estimate_report.get("method", ""))
-    attempts = state.get("causal_refutation_attempts", 0)
-    if state.get("causal_refutation_passed", False) or method.startswith("withheld:"):
-        return "end"
-    if attempts >= 2:
-        logger.info("Refutation failed after %s attempt(s); ending run", attempts)
-        return "end"
+    from coordinator.refutation import refutation_next_step
 
-    logger.info("Refutation failed; retrying causal synthesis")
-    return "causal_synthesis"
+    return refutation_next_step(state)
 
 
 def build_graph():

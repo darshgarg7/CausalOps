@@ -281,6 +281,8 @@ class GraphState(TypedDict):
     """Master LangGraph state shared across all workflow nodes."""
 
     task_description: str
+    run_id: str
+    correlation_id: str
 
     parent_configs: list[AgentConfig]
     child_configs: Annotated[list[ChildConfig], operator.add]
@@ -303,6 +305,8 @@ class ParentState(TypedDict):
     """State for Parent Agent node execution."""
 
     task_description: str
+    run_id: str
+    correlation_id: str
     persona: str
     focus_objective: str
 
@@ -311,6 +315,8 @@ class ChildState(TypedDict):
     """State for Child Agent node execution."""
 
     task_description: str
+    run_id: str
+    correlation_id: str
     parent_persona: str
     persona: str
     focus_objective: str

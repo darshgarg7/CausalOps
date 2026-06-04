@@ -10,6 +10,15 @@ from demo_fixtures import (
 )
 
 
+@pytest.fixture(autouse=True)
+def kafka_off_for_unit_tests(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Force inline spawn dispatch in unit tests (broker tests opt out via ``kafka`` marker)."""
+
+    if request.node.get_closest_marker("kafka") is not None:
+        return
+    monkeypatch.delenv("KAFKA_BOOTSTRAP", raising=False)
+
+
 @pytest.fixture
 def patch_graph():
     """Return the deterministic patching/lateral-movement causal graph."""

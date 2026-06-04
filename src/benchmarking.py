@@ -11,9 +11,13 @@ from __future__ import annotations
 from typing import Any, Iterable
 
 
-def score_agent_tiers(final_state: dict[str, Any]) -> dict[str, Any]:
+def score_agent_tiers(
+    final_state: dict[str, Any],
+    summary: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Score all workflow tiers from the final LangGraph state."""
 
+    summary = summary or {}
     parent_configs = final_state.get("parent_configs", []) or []
     child_configs = final_state.get("child_configs", []) or []
     memos = final_state.get("memos", []) or []
@@ -22,11 +26,25 @@ def score_agent_tiers(final_state: dict[str, Any]) -> dict[str, Any]:
     causal_payload = final_state.get("causal_payload") or {}
     estimate_report = final_state.get("causal_estimate_report") or {}
 
+    parent_count = summary.get("parent_config_count")
+    if parent_count is None:
+        parent_count = len(parent_configs)
+    child_count = summary.get("child_config_count")
+    if child_count is None:
+        child_count = len(child_configs)
+    memo_count = summary.get("memo_count")
+    if memo_count is None:
+        memo_count = len(memos)
+
     metrics = {
-        "orchestrator": _score_orchestrator(parent_configs),
-        "parent_agents": _score_parent_agents(child_configs),
-        "child_agents": _score_child_agents(memos),
-        "evaluator": _score_evaluator(ranked, evaluator_error),
+        "orchestrator": _score_orchestrator_count(int(parent_count)),
+        "parent_agents": _score_parent_agents_count(int(child_count), child_configs),
+        "child_agents": _score_child_agents_count(int(memo_count), memos),
+        "evaluator": _score_evaluator(
+            ranked,
+            evaluator_error,
+            has_ranked=bool(summary.get("has_ranked_strategies")),
+        ),
         "causal_architect": _score_causal_architect(causal_payload.get("graph", {})),
         "estimator": _score_estimator(estimate_report),
     }
@@ -37,51 +55,77 @@ def score_agent_tiers(final_state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _score_orchestrator_count(parent_count: int) -> dict[str, Any]:
+    """Score orchestrator branch count from bus summary or state."""
+
+    score = 1.0 if 2 <= parent_count <= 3 else 0.55 if parent_count > 0 else 0.0
+    return {
+        "score": score,
+        "observed": parent_count,
+        "target": "2-3 parent investigatory vectors",
+    }
+
+
 def _score_orchestrator(parent_configs: Iterable[Any]) -> dict[str, Any]:
     """Score whether the orchestrator produced the expected branch count."""
 
-    parents = list(parent_configs)
-    count = len(parents)
-    score = 1.0 if 2 <= count <= 3 else 0.55 if count > 0 else 0.0
+    return _score_orchestrator_count(len(list(parent_configs)))
+
+
+def _score_parent_agents_count(
+    child_count: int,
+    child_configs: Iterable[Any],
+) -> dict[str, Any]:
+    """Score parent spawn output using bus count with optional completeness sample."""
+
+    children = list(child_configs)
+    if children:
+        complete = sum(
+            1
+            for child in children
+            if _field(child, "persona") and _field(child, "focus_objective")
+        )
+        completeness = complete / max(len(children), 1)
+    elif child_count > 0:
+        completeness = 1.0
+    else:
+        completeness = 0.0
+
+    observed = child_count if child_count else len(children)
+    score = completeness if observed else 0.0
+    if observed >= 4:
+        score = min(1.0, score + 0.1)
     return {
-        "score": score,
-        "observed": count,
-        "target": "2-3 parent investigatory vectors",
+        "score": round(score, 3),
+        "observed": observed,
+        "target": "specialized children with persona and focus objective",
     }
 
 
 def _score_parent_agents(child_configs: Iterable[Any]) -> dict[str, Any]:
     """Score whether parent agents produced complete child tasks."""
 
-    children = list(child_configs)
-    complete = sum(
-        1
-        for child in children
-        if _field(child, "persona") and _field(child, "focus_objective")
-    )
-    score = complete / max(len(children), 1) if children else 0.0
-    if len(children) >= 4:
-        score = min(1.0, score + 0.1)
-    return {
-        "score": round(score, 3),
-        "observed": len(children),
-        "target": "specialized children with persona and focus objective",
-    }
+    return _score_parent_agents_count(len(list(child_configs)), child_configs)
 
 
-def _score_child_agents(memos: Iterable[Any]) -> dict[str, Any]:
-    """Score child-agent memo completeness."""
+def _score_child_agents_count(
+    memo_count: int,
+    memos: Iterable[Any],
+) -> dict[str, Any]:
+    """Score child memo output using bus count and a single memo sample."""
 
     memo_list = list(memos)
-    if not memo_list:
+    observed = memo_count if memo_count else len(memo_list)
+    if not observed:
         return {
             "score": 0.0,
             "observed": 0,
             "target": "memos with strategy, risks, assumptions, evidence needs",
         }
 
-    field_scores: list[float] = []
-    for memo in memo_list:
+    sample = memo_list[:1]
+    if sample:
+        memo = sample[0]
         fields_present = [
             bool(_field(memo, "strategy")),
             bool(_field(memo, "risks")),
@@ -89,18 +133,30 @@ def _score_child_agents(memos: Iterable[Any]) -> dict[str, Any]:
             bool(_field(memo, "second_order_effects")),
             bool(_field(memo, "evidence_needs")),
         ]
-        field_scores.append(sum(fields_present) / len(fields_present))
+        sample_score = sum(fields_present) / len(fields_present)
+    else:
+        sample_score = 1.0
 
+    count_score = min(1.0, observed / max(observed, 1))
+    score = round(min(1.0, count_score * 0.4 + sample_score * 0.6), 3)
     return {
-        "score": round(sum(field_scores) / len(field_scores), 3),
-        "observed": len(memo_list),
+        "score": score,
+        "observed": observed,
         "target": "complete DecisionMemo fields",
     }
+
+
+def _score_child_agents(memos: Iterable[Any]) -> dict[str, Any]:
+    """Score child-agent memo completeness."""
+
+    return _score_child_agents_count(len(list(memos)), memos)
 
 
 def _score_evaluator(
     ranked: list[dict[str, Any]],
     evaluator_error: str | None,
+    *,
+    has_ranked: bool = False,
 ) -> dict[str, Any]:
     """Score evaluator output shape and failure handling."""
 
@@ -113,7 +169,7 @@ def _score_evaluator(
 
     latest = ranked[-1] if ranked else {}
     has_evals = bool(latest.get("evaluations"))
-    has_rank = bool(latest.get("ranked_perspectives"))
+    has_rank = bool(latest.get("ranked_perspectives")) or has_ranked
     has_recommendation = bool(latest.get("final_recommendation"))
     score = sum([has_evals, has_rank, has_recommendation]) / 3
     return {

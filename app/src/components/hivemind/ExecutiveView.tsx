@@ -2,7 +2,7 @@ import { AlertTriangle, ArrowRight, ShieldCheck, TrendingUp } from "lucide-react
 import { useMemo } from "react";
 import { buildKillChain, type ScenarioState } from "@/lib/scenario-builder";
 import type { RunResponse } from "@/lib/hivemind-types";
-import type { DerivedMetrics } from "@/lib/derived-metrics";
+import { isImpactWithheld, type DerivedMetrics } from "@/lib/derived-metrics";
 import type { ObservabilityTrace } from "@/lib/agent-runtime";
 import { ExecutiveCausalCompact } from "./ExecutiveCausalCompact";
 import { cn } from "@/lib/utils";
@@ -116,7 +116,9 @@ export function ExecutiveView({ fields, ttps, result, derived, observability }: 
           {derived && result ? (
             <>
               <div className="mt-1 font-mono text-2xl tabular-nums text-foreground">
-                ATE {result.impact.ate.toFixed(2)}
+                {isImpactWithheld(result.impact)
+                  ? "ATE withheld"
+                  : `ATE ${result.impact.ate?.toFixed(2) ?? "—"}`}
               </div>
               <div className="mt-1 line-clamp-2 text-[12px] text-muted-foreground">
                 {derived.ranked[0].strategy.title}

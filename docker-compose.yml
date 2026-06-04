@@ -1,4 +1,30 @@
 services:
+  redpanda:
+    image: redpandadata/redpanda:v24.2.4
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp
+      - "1"
+      - --memory
+      - 1G
+      - --reserve-memory
+      - 0M
+      - --node-id
+      - "0"
+      - --kafka-addr
+      - internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr
+      - internal://redpanda:9092,external://localhost:19092
+    ports:
+      - "19092:19092"
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+
   api:
     build: .
     command: sh -c "cd src && uvicorn api:app --host 0.0.0.0 --port 8000"
@@ -8,13 +34,37 @@ services:
       - .env
     environment:
       HIVEMIND_ALLOWED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
+      KAFKA_BOOTSTRAP: redpanda:9092
+      HIVEMIND_ENABLE_SPAWN_WORKER: "0"
     volumes:
       - ./data:/app/data
+    depends_on:
+      redpanda:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 5s
       retries: 3
+
+  worker:
+    build: .
+    command: sh -c "cd src && python -m worker"
+    env_file:
+      - .env
+    environment:
+      KAFKA_BOOTSTRAP: redpanda:9092
+      HIVEMIND_ENABLE_SPAWN_WORKER: "1"
+      HIVEMIND_SPAWN_MAX_RETRIES: "2"
+      HIVEMIND_SPAWN_RETRY_BACKOFF_MS: "1000"
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    restart: unless-stopped
 
   frontend:
     build: ./app

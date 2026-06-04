@@ -10,20 +10,28 @@ The API exposes two paths:
 """
 
 import asyncio
+import json
 import logging
 import os
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
+
+from bus.consumer import stream_telemetry
+from bus.producer import set_event_loop, start_producer, stop_producer
+from worker.consumer import run_spawn_consumer
 
 from dataset_compiler import compile_evidence_dataset
 from demo_fixtures import (
     patch_lateral_movement_evidence,
     patch_lateral_movement_graph,
 )
-from engine import run_hivemind
+from coordinator.store import get_run_store
+from engine import load_run_artifact, new_run_id, run_hivemind
 from estimators import estimate_causal_effect
 from evidence_adapters import (
     normalize_cve_records,
@@ -35,10 +43,46 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 logging.getLogger("dowhy").setLevel(logging.WARNING)
 
+
+def _spawn_worker_enabled() -> bool:
+    return os.getenv("HIVEMIND_ENABLE_SPAWN_WORKER", "0").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Start Kafka producer and optionally the in-process spawn worker."""
+
+    set_event_loop(asyncio.get_running_loop())
+    await start_producer()
+    stop_event = asyncio.Event()
+    worker_task = None
+    if _spawn_worker_enabled():
+        worker_task = asyncio.create_task(
+            run_spawn_consumer(stop_event=stop_event)
+        )
+        logger.info("In-process spawn worker enabled")
+    else:
+        logger.info(
+            "In-process spawn worker disabled; expect a separate worker service"
+        )
+    try:
+        yield
+    finally:
+        stop_event.set()
+        if worker_task is not None:
+            await worker_task
+        await stop_producer()
+
+
 app = FastAPI(
     title="HiveMind API",
     version="0.2.0",
     description="Evidence-backed causal inference API for cyber decision support.",
+    lifespan=lifespan,
 )
 
 
@@ -69,6 +113,10 @@ class RunRequest(BaseModel):
     task_description: str = Field(
         min_length=20,
         description="Natural-language incident or decision scenario.",
+    )
+    run_id: str | None = Field(
+        default=None,
+        description="Optional client-supplied run id for SSE telemetry alignment.",
     )
     evidence_records: list[dict[str, Any]] | None = Field(
         default=None,
@@ -107,6 +155,8 @@ def read_root():
         "message": "Welcome to the HiveMind API",
         "docs_url": "/docs",
         "health_check": "/health",
+        "run_status": "/run/{run_id}",
+        "run_events_sse": "/run/{run_id}/events",
         "demo_estimate": "/demo/estimate",
         "normalizers": [
             "/normalize/sentinel",
@@ -123,15 +173,137 @@ def health_check():
     return {"status": "ok"}
 
 
-@app.post("/run")
-async def run_engine(request: RunRequest):
-    """Execute the full agent graph and optional evidence-backed estimator."""
+@app.get("/run/{run_id}/events")
+async def stream_run_events(run_id: str):
+    """Stream execution telemetry for a run as Server-Sent Events."""
 
-    logger.info("Received request to run HiveMind engine")
+    async def event_generator():
+        stop_event = asyncio.Event()
+        try:
+            async for envelope in stream_telemetry(run_id, stop_event=stop_event):
+                payload = envelope.payload
+                phase = str(payload.get("phase", ""))
+                event = {
+                    "id": f"{run_id}-{envelope.agent_id}-{envelope.sequence}",
+                    "phase": phase,
+                    "message": str(payload.get("message", "")),
+                    "status": payload.get("status", "running"),
+                    "ts": int(envelope.timestamp.timestamp() * 1000),
+                }
+                yield f"data: {json.dumps(event)}\n\n"
+                if phase in ("COMPLETE", "ERROR"):
+                    stop_event.set()
+                    break
+        except asyncio.CancelledError:
+            stop_event.set()
+            raise
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+async def _execute_run_background(
+    *,
+    run_id: str,
+    task_description: str,
+    evidence_records: list[dict[str, Any]] | None,
+) -> None:
+    """Run HiveMind in the background for async POST /run."""
+
+    try:
+        await run_hivemind(
+            task_description,
+            evidence_records=evidence_records,
+            run_id=run_id,
+        )
+    except Exception:
+        logger.exception("Background run failed for run_id=%s", run_id)
+
+
+@app.get("/run/{run_id}")
+async def get_run_status(run_id: str):
+    """Return run lifecycle status and artifact when complete."""
+
+    store = get_run_store()
+    try:
+        record = store.get_run(run_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Run not found") from exc
+
+    artifact = None
+    if record.status == "completed":
+        artifact = load_run_artifact(run_id)
+
+    # Coordinator may mark the run completed before the artifact file is written.
+    effective_status = record.status
+    if record.status == "completed" and artifact is None:
+        effective_status = "running"
+
+    payload: dict[str, Any] = {
+        "run_id": run_id,
+        "status": effective_status,
+    }
+    if record.error_detail:
+        payload["error"] = record.error_detail
+    if artifact is not None:
+        payload["artifact"] = artifact
+    return payload
+
+
+@app.post("/run", status_code=202)
+async def enqueue_run(request: RunRequest):
+    """Enqueue the full agent graph and return immediately."""
+
+    run_id = request.run_id or new_run_id()
+    store = get_run_store()
+    try:
+        existing = store.get_run(run_id)
+    except KeyError:
+        existing = None
+
+    if existing is not None and existing.status in ("queued", "running"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Run {run_id} is already {existing.status}",
+        )
+
+    store.enqueue_run(
+        run_id=run_id,
+        correlation_id=run_id,
+        task_description=request.task_description,
+        evidence_records=request.evidence_records,
+    )
+    asyncio.create_task(
+        _execute_run_background(
+            run_id=run_id,
+            task_description=request.task_description,
+            evidence_records=request.evidence_records,
+        )
+    )
+    logger.info("Enqueued HiveMind run_id=%s", run_id)
+    return JSONResponse(
+        status_code=202,
+        content={"run_id": run_id, "status": "queued"},
+    )
+
+
+@app.post("/run/sync")
+async def run_engine_sync(request: RunRequest):
+    """Blocking run endpoint retained for scripts and integration tests."""
+
+    logger.info("Received synchronous request to run HiveMind engine")
     try:
         result = await run_hivemind(
             request.task_description,
             evidence_records=request.evidence_records,
+            run_id=request.run_id,
         )
         logger.info(
             "Successfully generated output for run_id: %s",

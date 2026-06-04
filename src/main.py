@@ -7,6 +7,8 @@ estimator output.
 
 from __future__ import annotations
 
+import asyncio
+
 from dotenv import load_dotenv
 import streamlit as st
 from streamlit_agraph import Config, Edge, Node, agraph
@@ -51,7 +53,7 @@ def _run_and_render(task_description: str) -> None:
     with st.status("Executing Hierarchical Agentic Loop...", expanded=True) as status:
         st.write("Executing causal graph workflow...")
         try:
-            artifact = run_hivemind(task_description)
+            artifact = asyncio.run(run_hivemind(task_description))
             status.update(
                 label="Analysis and causal inference complete",
                 state="complete",

@@ -113,8 +113,8 @@ export function ApiSettingsDialog({ open, onOpenChange, onChange }: ApiSettingsD
             autoComplete="off"
           />
           <p className="text-[11px] text-muted-foreground">
-            We&apos;ll append <code className="font-mono">/run</code> automatically for external
-            hosts. Default: <code className="font-mono">{DEFAULT_API_URL}</code>
+            Use the FastAPI backend at <code className="font-mono">{DEFAULT_API_URL}</code>. URLs on
+            this UI origin (port 8080) are redirected to port 8000 automatically.
           </p>
 
           <div

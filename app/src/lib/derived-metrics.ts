@@ -136,32 +136,41 @@ function confidenceToScore(c: string): number {
   return 0.6;
 }
 
+export function isImpactWithheld(impact: Impact): boolean {
+  return impact.ate == null || (impact.method?.startsWith("withheld:") ?? false);
+}
+
 export function computeDerivedMetrics(run: RunResponse): DerivedMetrics {
   const strategies = run.strategies ?? [];
   const ranked = scoreStrategies(strategies);
   const graph = graphStats(run.causal_graph ?? { nodes: [], edges: [] });
-  const impact: Impact = run.impact ?? { ate: 0, confidence: "unknown" };
+  const impact: Impact = run.impact ?? { ate: null, confidence: "unknown" };
+  const withheld = isImpactWithheld(impact);
 
   const confidenceScore = confidenceToScore(impact.confidence);
-  const hasReportedCi = typeof impact.ci_low === "number" && typeof impact.ci_high === "number";
+  const hasReportedCi =
+    !withheld && typeof impact.ci_low === "number" && typeof impact.ci_high === "number";
   const noise = ((hash32(run.run_id || "x") % 1000) / 1000 - 0.5) * 0.04;
   const halfWidth = (1 - confidenceScore) * 0.28 + 0.06 + noise;
+  const ate = impact.ate ?? 0;
   const ci = hasReportedCi
     ? {
         low: impact.ci_low as number,
         high: impact.ci_high as number,
         halfWidth: Math.abs(((impact.ci_high as number) - (impact.ci_low as number)) / 2),
       }
-    : {
-        low: impact.ate - halfWidth,
-        high: impact.ate + halfWidth,
-        halfWidth: Math.abs(halfWidth),
-      };
+    : withheld
+      ? { low: 0, high: 0, halfWidth: 0 }
+      : {
+          low: ate - halfWidth,
+          high: ate + halfWidth,
+          halfWidth: Math.abs(halfWidth),
+        };
 
   const seed = hash32(run.run_id || "x");
   const trajectories = impact.n_rows && impact.n_rows > 0 ? impact.n_rows : 96 + (seed % 96);
   const durationMs = 1200 + (seed % 1800);
-  const deltaPct = impact.ate * 100;
+  const deltaPct = withheld ? 0 : ate * 100;
 
   return {
     ranked,
@@ -176,7 +185,8 @@ export function computeDerivedMetrics(run: RunResponse): DerivedMetrics {
 }
 
 export const fmt = {
-  ate(n: number): string {
+  ate(n: number | null | undefined): string {
+    if (n == null) return "WITHHELD";
     const v = n.toFixed(2);
     return n > 0 ? `+${v}` : v;
   },

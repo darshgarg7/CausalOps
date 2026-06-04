@@ -70,5 +70,8 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Create empty env file for config validation
+        run: touch .env
+
       - name: Validate Docker Compose config
         run: docker compose config --quiet

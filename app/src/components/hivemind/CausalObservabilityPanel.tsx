@@ -107,7 +107,7 @@ export function CausalObservabilityPanel({ trace }: Props) {
           </div>
           <span
             className="ml-3 rounded-full border border-[color:var(--neon-violet)]/40 bg-[color:var(--neon-violet)]/10 px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.2em] text-[color:var(--neon-violet)]"
-            title="Reconstructed from /run response — not a live agent stream"
+            title="Client-side overlay derived from the /run JSON response — not the live Execution Stream (Kafka telemetry)"
           >
             Derived overlay
           </span>

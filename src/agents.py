@@ -17,6 +17,9 @@ from pydantic import BaseModel
 from openai import ContentFilterFinishReasonError
 
 
+from bus.events import ArtifactType
+from bus.helpers import bind_from_state
+from bus.publish import publish_artifact, publish_spawn, publish_telemetry
 from schema import (
     AgentConfig,
     ChildConfig,
@@ -72,11 +75,36 @@ grand_orchestrator_chain = grand_orchestrator_prompt | llm.with_structured_outpu
 def grand_orchestrator_node(state: GraphState) -> dict[str, list[AgentConfig]]:
     """Decompose the incident into parent-agent investigation tracks."""
 
+    bind_from_state(state)
+    publish_telemetry(
+        agent_id="orchestrator",
+        tier="orchestrator",
+        phase="ORCHESTRATOR",
+        message="Decomposing incident into parent tracks",
+        status="running",
+    )
+
     logger.info("Grand orchestrator analyzing incident")
     result = grand_orchestrator_chain.invoke(
         {"task_description": state["task_description"]}
     )
     logger.info("Spawned %s parent agents", len(result.parent_configs))
+
+    for config in result.parent_configs:
+        publish_spawn(
+            agent_id="orchestrator",
+            tier="orchestrator",
+            artifact_type=ArtifactType.AGENT_CONFIG,
+            payload=config.model_dump(),
+        )
+
+    publish_telemetry(
+        agent_id="orchestrator",
+        tier="orchestrator",
+        phase="ORCHESTRATOR",
+        message=f"Spawned {len(result.parent_configs)} parent agents",
+        status="done",
+    )
     return {"parent_configs": result.parent_configs}
 
 
@@ -107,6 +135,16 @@ parent_agent_chain = parent_agent_prompt | llm.with_structured_output(
 def parent_agent_node(state: ParentState) -> dict[str, list[ChildConfig]]:
     """Spawn child-agent tasks for a single parent investigation track."""
 
+    bind_from_state(state)
+    agent_id = f"parent:{state['persona']}"
+    publish_telemetry(
+        agent_id=agent_id,
+        tier="parent",
+        phase="PARENT_SPAWN",
+        message=f"Parent [{state['persona']}] spawning specialists",
+        status="running",
+    )
+
     logger.info("Parent agent [%s] spawning specialists", state["persona"])
     result = parent_agent_chain.invoke(
         {
@@ -123,6 +161,22 @@ def parent_agent_node(state: ParentState) -> dict[str, list[ChildConfig]]:
         "Parent agent [%s] spawned %s children",
         state["persona"],
         len(result.child_configs),
+    )
+
+    for child in result.child_configs:
+        publish_spawn(
+            agent_id=agent_id,
+            tier="parent",
+            artifact_type=ArtifactType.CHILD_CONFIG,
+            payload=child.model_dump(),
+        )
+
+    publish_telemetry(
+        agent_id=agent_id,
+        tier="parent",
+        phase="PARENT_SPAWN",
+        message=f"Spawned {len(result.child_configs)} children",
+        status="done",
     )
     return {"child_configs": result.child_configs}
 
@@ -162,8 +216,18 @@ def _fallback_memo(state: ChildState, reason: str) -> DecisionMemo:
 def child_agent_node(state: ChildState) -> dict[str, list[DecisionMemo]]:
     """Produce one evidence-aware decision memo from a child agent."""
 
+    bind_from_state(state)
+    agent_id = f"child:{state['persona']}"
+    publish_telemetry(
+        agent_id=agent_id,
+        tier="child",
+        phase="CHILD_MEMO",
+        message=f"Child [{state['persona']}] synthesizing memo",
+        status="running",
+    )
+
     logger.info("Child agent [%s] synthesizing memo", state["persona"])
-    try:
+    try: 
         memo = child_agent_chain.invoke(
             {
                 "persona": state["persona"],
@@ -174,17 +238,35 @@ def child_agent_node(state: ChildState) -> dict[str, list[DecisionMemo]]:
         )
         logger.info("Child agent [%s] completed memo", state["persona"])
     except ContentFilterFinishReasonError:
-        logger.warning(
-            "Child agent [%s] blocked by content filter - using fallback memo",
-            state["persona"]
+        logger.warning("Child agent [%s] blocked by content filter - using fallback memo",state["persona"])
+        publish_telemetry(
+            agent_id=agent_id,
+            tier="child",
+            phase="ERROR",
+            message=f"Child [{state['persona']}] blocked by content filter",
+            status="error"
         )
         memo = _fallback_memo(state, "blocked by azure content filter")
     except Exception as exc:
         logger.error(
             "Child agent [%s] failed unexpectedly: %s", state["persona"], exc
         )
-        memo = _fallback_memo(state, f"unexpected error: {exc}")
+        memo = _fallback_memo(state, f"Unexpected error: {exc}")
 
+    publish_artifact(
+        agent_id=agent_id,
+        tier="child",
+        artifact_type=ArtifactType.DECISION_MEMO,
+        payload=memo.model_dump(),
+    )
+
+    publish_telemetry(
+        agent_id=agent_id,
+        tier="child",
+        phase="CHILD_MEMO",
+        message=f"Memo complete: {memo.perspective}",
+        status="done",
+    )
     return {"memos": [memo]}
 
 
