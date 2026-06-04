@@ -14,7 +14,6 @@ from typing import Any
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import AzureChatOpenAI
 from pydantic import BaseModel
-from openai import ContentFilterFinishReasonError
 
 
 from bus.events import ArtifactType
