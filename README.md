@@ -2,7 +2,7 @@
 
 **An evidence-backed causal reasoning engine for cyber operations.**
 
-HiveMind turns a messy incident prompt into a structured investigation: agents
+CausalOps turns a messy incident prompt into a structured investigation: agents
 decompose the problem, write decision memos, propose a causal graph, compile
 external evidence into observations, and only then estimate intervention impact
 with DoWhy and statsmodels.
@@ -16,7 +16,7 @@ The important design choice is simple:
 
 ## What Makes This Different
 
-Most agent demos stop at a confident narrative. HiveMind is built to survive the
+Most agent demos stop at a confident narrative. CausalOps is built to survive the
 obvious engineering objection: "Where did the data come from?"
 
 | Layer | What it does | Guardrail |
@@ -96,7 +96,7 @@ the same causal compiler used by `/estimate` and `/run`.
 
 ### 4. How many rows does DoWhy need, and why 50?
 
-HiveMind treats 50 complete treatment/outcome observations as a minimum smoke
+CausalOps treats 50 complete treatment/outcome observations as a minimum smoke
 gate, not as a universal statistical guarantee. The estimator also requires at
 least 10 treated and 10 control rows, observed variation in treatment/outcome,
 and acceptable covariate missingness. The report warns that 200+ rows are
@@ -150,17 +150,17 @@ With Docker Compose, Kafka is enabled automatically via Redpanda:
 KAFKA_BOOTSTRAP=localhost:19092
 ```
 
-Topics: `hivemind.runs`, `hivemind.spawn`, `hivemind.artifacts`, `hivemind.telemetry`, `hivemind.dlq`.
+Topics: `CausalOps.runs`, `CausalOps.spawn`, `CausalOps.artifacts`, `CausalOps.telemetry`, `CausalOps.dlq`.
 
 Compose runs three backend processes: **api** (coordinator + SSE, no spawn consumer), **worker** (spawn consumer), and **redpanda**. Both api and worker share `./data` for the SQLite run store.
 
 | Env var | Default (compose) | Purpose |
 |---------|-------------------|---------|
-| `HIVEMIND_ENABLE_SPAWN_WORKER` | `0` on api, `1` on worker | In-process spawn consumer in api when `1` |
-| `HIVEMIND_SPAWN_MAX_RETRIES` | `2` | Dispatch retries before DLQ |
-| `HIVEMIND_SPAWN_RETRY_BACKOFF_MS` | `1000` | Delay between spawn retries |
+| `CausalOps_ENABLE_SPAWN_WORKER` | `0` on api, `1` on worker | In-process spawn consumer in api when `1` |
+| `CausalOps_SPAWN_MAX_RETRIES` | `2` | Dispatch retries before DLQ |
+| `CausalOps_SPAWN_RETRY_BACKOFF_MS` | `1000` | Delay between spawn retries |
 
-For single-process local dev without the worker container, set `HIVEMIND_ENABLE_SPAWN_WORKER=1` on the api service.
+For single-process local dev without the worker container, set `CausalOps_ENABLE_SPAWN_WORKER=1` on the api service.
 
 Live UI progress uses SSE. The frontend generates a `run_id`, opens
 `GET /run/{run_id}/events`, then calls `POST /run` with the same id. If
@@ -333,7 +333,7 @@ curl -X POST http://localhost:8000/normalize/incidents \
 
 - **Production-Grade MCP Intelligence Fabric:** Build a distributed MCP client layer capable of dynamically discovering, authenticating, and routing across agentic topics within the swarm. Agents will interface with specialized cyber-oriented MCP servers providing contextual memory, threat intelligence enrichment, tool orchestration, policy enforcement, and reasoning augmentation. The long-term goal is a zero-trust, latency-aware intelligence plane for autonomous multi-agent coordination.
 - **Deep Hierarchical Agent Expansion:** Introduce additional recursive child-agent layers with adaptive spawning policies driven by task complexity, uncertainty, and resource availability. Runtime efficiency will be improved through asynchronous execution pipelines, speculative parallel reasoning, and distributed workload scheduling across heterogeneous compute environments.
-- **Full Distributed Execution** Production-grade bus-native architecture with horizontally scaled worker services (compose/k8s), a coordinator-only API container, and shared run state in Redis or Postgres (SQLite retained for local dev). Harden the bus with idempotency keys, retry policy, and dead-letter topics; version envelopes with Avro and Schema Registry. Add `hivemind.evidence`, S3/MinIO refs for large artifacts, in-flight run recovery after restarts, and observability (consumer lag, run-phase dashboards, DLQ alerting). Migrate via existing `WorkerExecutor` (in-process → remote) and `RunStore` (SQLite → Redis) interfaces while keeping spawn/artifact shapes and coordinator barrier rules unchanged.
+- **Full Distributed Execution** Production-grade bus-native architecture with horizontally scaled worker services (compose/k8s), a coordinator-only API container, and shared run state in Redis or Postgres (SQLite retained for local dev). Harden the bus with idempotency keys, retry policy, and dead-letter topics; version envelopes with Avro and Schema Registry. Add `CausalOps.evidence`, S3/MinIO refs for large artifacts, in-flight run recovery after restarts, and observability (consumer lag, run-phase dashboards, DLQ alerting). Migrate via existing `WorkerExecutor` (in-process → remote) and `RunStore` (SQLite → Redis) interfaces while keeping spawn/artifact shapes and coordinator barrier rules unchanged.
 - **5D Spatiotemporal Knowledge Graph Engine:** Develop a real-time 5D spatiotemporal graph system continuously updated from Kafka event streams. The graph will model entities, relationships, temporal evolution, and contextual state transitions across the swarm. Dynamically generated DAGs and causal inference pipelines will emerge directly from this evolving graph substrate, enabling temporally-aware reasoning, anomaly tracing, and adaptive decision intelligence.
 - **Evolutionary Agent Optimization Framework:** Integrate a steady-state evolutionary algorithm for autonomous optimization of agent spawning strategies, behavioral policies, and orchestration patterns. Agents will inherit successful traits through mutation and crossover mechanisms, allowing the swarm to continuously evolve more efficient reasoning pathways, coordination structures, and task-specialized behaviors over time.
 - **Federated Multi-Swarm Coordination:** Extend the architecture toward federated swarm interoperability, where independent agent clusters can exchange semantic state, negotiate objectives, and collaboratively solve large-scale problems while preserving localized autonomy and fault isolation.
