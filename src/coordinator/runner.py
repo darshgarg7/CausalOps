@@ -50,6 +50,19 @@ async def execute_run(
         await _dispatch_children(record, run_store)
         await _run_evaluator(record, run_store)
         await _run_causal_loop(record, run_store)
+
+        # Build 5D Spatiotemporal KG Graph from final record state
+        try:
+            conn = run_store._connect()
+            try:
+                with conn:
+                    from graph_5d import reconstruct_5d_graph
+                    reconstruct_5d_graph(conn, run_id, record)
+            finally:
+                conn.close()
+        except Exception as exc:
+            logger.exception("Failed to build 5D spatiotemporal graph: %s", exc)
+
         record.status = "completed"
         run_store.save(record)
     except Exception:

@@ -9,6 +9,7 @@ import { EMPTY_SCENARIO, type ScenarioState } from "@/lib/scenario-builder";
 import { MetricsBar } from "@/components/hivemind/MetricsBar";
 import { StrategiesGrid } from "@/components/hivemind/StrategiesGrid";
 import { CausalGraphPanel } from "@/components/hivemind/CausalGraphPanel";
+import { SpatiotemporalKGPanel } from "@/components/hivemind/SpatiotemporalKGPanel";
 import { ErrorPanel } from "@/components/hivemind/ErrorPanel";
 import { ExecutionStream } from "@/components/hivemind/ExecutionStream";
 import { CausalObservabilityPanel } from "@/components/hivemind/CausalObservabilityPanel";
@@ -296,6 +297,7 @@ function Index() {
               graph={result.causal_graph ?? { nodes: [], edges: [] }}
               edgeAnnotations={observability?.edges}
             />
+            <SpatiotemporalKGPanel runId={result.run_id} />
             {observability && <CausalObservabilityPanel trace={observability} />}
           </div>
         )}

@@ -257,6 +257,88 @@ async def get_run_status(run_id: str):
     return payload
 
 
+class STEdgeIngest(BaseModel):
+    subject: str = Field(description="Subject node ID")
+    predicate: str = Field(description="Action link or relationship")
+    object: str = Field(description="Object node ID")
+    observed_at: str | None = Field(default=None, description="ISO timestamp")
+    location: dict[str, Any] | None = Field(default=None, description="Spatial coordinates or zones")
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    metadata: dict[str, Any] | None = Field(default=None, description="Additional metadata")
+
+
+class STNodeIngest(BaseModel):
+    id: str = Field(description="Node ID")
+    node_type: str = Field(description="agent | asset | threat | artifact | causal_variable")
+    label: str = Field(description="Display label")
+    description: str | None = Field(default=None)
+    location: dict[str, Any] | None = Field(default=None)
+
+
+class Ingest5DRequest(BaseModel):
+    nodes: list[STNodeIngest] = Field(default_factory=list)
+    edges: list[STEdgeIngest] = Field(default_factory=list)
+
+
+@app.get("/run/{run_id}/graph/5d")
+async def get_run_5d_graph(run_id: str):
+    """Retrieve the 5D Spatiotemporal Knowledge Graph for a run."""
+
+    store = get_run_store()
+    try:
+        # Verify run exists
+        store.get_run(run_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Run not found") from exc
+
+    return store.get_5d_graph(run_id)
+
+
+@app.post("/run/{run_id}/graph/5d/ingest", status_code=200)
+async def ingest_run_5d_graph(run_id: str, request: Ingest5DRequest):
+    """Manually ingest node and edge tuples into the 5D spatiotemporal graph."""
+
+    store = get_run_store()
+    try:
+        store.get_run(run_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Run not found") from exc
+
+    try:
+        conn = store._connect()
+        try:
+            with conn:
+                from graph_5d import log_st_node, log_st_edge
+                for node in request.nodes:
+                    log_st_node(
+                        conn,
+                        run_id=run_id,
+                        node_id=node.id,
+                        node_type=node.node_type,
+                        label=node.label,
+                        description=node.description or "",
+                        location=node.location,
+                    )
+                for edge in request.edges:
+                    log_st_edge(
+                        conn,
+                        run_id=run_id,
+                        subject_id=edge.subject,
+                        predicate=edge.predicate,
+                        object_id=edge.object,
+                        observed_at=edge.observed_at,
+                        location=edge.location,
+                        confidence=edge.confidence,
+                        edge_metadata=edge.metadata,
+                    )
+        finally:
+            conn.close()
+        return {"status": "ok", "nodes_ingested": len(request.nodes), "edges_ingested": len(request.edges)}
+    except Exception as exc:
+        logger.exception("Failed manual ingestion of 5D graph elements: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @app.post("/run", status_code=202)
 async def enqueue_run(request: RunRequest):
     """Enqueue the full agent graph and return immediately."""

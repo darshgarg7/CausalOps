@@ -136,37 +136,60 @@ class RunStore:
         self._init_schema()
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(str(self.db_path), timeout=30.0)
         conn.row_factory = sqlite3.Row
+        try:
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute("PRAGMA busy_timeout=5000;")
+        except sqlite3.OperationalError:
+            pass
         return conn
 
     def _init_schema(self) -> None:
-        with self._connect() as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS runs (
-                    run_id TEXT PRIMARY KEY,
-                    correlation_id TEXT NOT NULL,
-                    task_description TEXT NOT NULL,
-                    phase TEXT NOT NULL DEFAULT 'created',
-                    status TEXT NOT NULL DEFAULT 'running',
-                    state_json TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
+        conn = self._connect()
+        try:
+            with conn:
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS runs (
+                        run_id TEXT PRIMARY KEY,
+                        correlation_id TEXT NOT NULL,
+                        task_description TEXT NOT NULL,
+                        phase TEXT NOT NULL DEFAULT 'created',
+                        status TEXT NOT NULL DEFAULT 'running',
+                        state_json TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                    """
                 )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS idempotency_claims (
-                    run_id TEXT NOT NULL,
-                    idempotency_key TEXT NOT NULL,
-                    status TEXT NOT NULL DEFAULT 'claimed',
-                    claimed_at TEXT NOT NULL,
-                    PRIMARY KEY (run_id, idempotency_key)
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS idempotency_claims (
+                        run_id TEXT NOT NULL,
+                        idempotency_key TEXT NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'claimed',
+                        claimed_at TEXT NOT NULL,
+                        PRIMARY KEY (run_id, idempotency_key)
+                    )
+                    """
                 )
-                """
-            )
+                from graph_5d import init_5d_schema
+                init_5d_schema(conn)
+        finally:
+            conn.close()
+
+    def get_5d_graph(self, run_id: str) -> dict[str, Any]:
+        """Fetch the compiled 5D spatiotemporal graph nodes and edges."""
+
+        from graph_5d import get_5d_graph as fetch_5d
+        conn = self._connect()
+        try:
+            with conn:
+                res = fetch_5d(conn, run_id)
+                return res
+        finally:
+            conn.close()
 
     def create_run(
         self,
@@ -188,6 +211,13 @@ class RunStore:
             status=status,
         )
         self.save(record)
+        conn = self._connect()
+        try:
+            with conn:
+                from graph_5d import seed_spatiotemporal_base
+                seed_spatiotemporal_base(conn, run_id)
+        finally:
+            conn.close()
         return record
 
     def enqueue_run(
@@ -209,6 +239,13 @@ class RunStore:
             status="queued",
         )
         self.save(record)
+        conn = self._connect()
+        try:
+            with conn:
+                from graph_5d import seed_spatiotemporal_base
+                seed_spatiotemporal_base(conn, run_id)
+        finally:
+            conn.close()
         return record
 
     def set_status(
