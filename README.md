@@ -1,4 +1,4 @@
-# HiveMind
+# CausalOps
 
 **An evidence-backed causal reasoning engine for cyber operations.**
 
