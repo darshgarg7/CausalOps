@@ -55,6 +55,7 @@ class RunRecord:
     dowhy_results: dict[str, Any] | None = None
     causal_dataset_profile: dict[str, Any] | None = None
     causal_estimate_report: dict[str, Any] | None = None
+    reasoning_report: dict[str, Any] | None = None
     expected_parent_count: int = 0
     completed_parent_count: int = 0
     expected_child_count: int = 0
@@ -81,6 +82,7 @@ class RunRecord:
             "evidence_records": self.evidence_records,
             "causal_dataset_profile": self.causal_dataset_profile,
             "causal_estimate_report": self.causal_estimate_report,
+            "reasoning_report": self.reasoning_report,
         }
 
     def apply_node_update(self, update: dict[str, Any]) -> None:
@@ -103,6 +105,7 @@ class RunRecord:
             "dowhy_results",
             "causal_dataset_profile",
             "causal_estimate_report",
+            "reasoning_report",
         ):
             if key in update:
                 setattr(self, key, update[key])
@@ -428,6 +431,7 @@ def _record_to_json(record: RunRecord) -> dict[str, Any]:
         "dowhy_results": record.dowhy_results,
         "causal_dataset_profile": record.causal_dataset_profile,
         "causal_estimate_report": record.causal_estimate_report,
+        "reasoning_report": record.reasoning_report,
         "expected_parent_count": record.expected_parent_count,
         "completed_parent_count": record.completed_parent_count,
         "expected_child_count": record.expected_child_count,
@@ -457,6 +461,7 @@ def _record_from_json(data: dict[str, Any]) -> RunRecord:
         dowhy_results=data.get("dowhy_results"),
         causal_dataset_profile=data.get("causal_dataset_profile"),
         causal_estimate_report=data.get("causal_estimate_report"),
+        reasoning_report=data.get("reasoning_report"),
         expected_parent_count=int(data.get("expected_parent_count", 0)),
         completed_parent_count=int(data.get("completed_parent_count", 0)),
         expected_child_count=int(data.get("expected_child_count", 0)),

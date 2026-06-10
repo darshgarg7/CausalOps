@@ -15,6 +15,7 @@ Tier = Literal[
     "evaluator",
     "causal",
     "estimator",
+    "reasoning",
     "control",
 ]
 
@@ -31,6 +32,7 @@ class ArtifactType(str, Enum):
     RANKED_STRATEGIES = "ranked_strategies"
     CAUSAL_PAYLOAD = "causal_payload"
     CAUSAL_ESTIMATE_REPORT = "causal_estimate_report"
+    REASONING_REPORT = "reasoning_report"
     RUN_STARTED = "run_started"
     RUN_COMPLETED = "run_completed"
     RUN_FAILED = "run_failed"

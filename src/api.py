@@ -294,6 +294,23 @@ async def get_run_5d_graph(run_id: str):
     return store.get_5d_graph(run_id)
 
 
+@app.get("/run/{run_id}/reasoning")
+async def get_run_reasoning(run_id: str):
+    """Return the reasoning layer's anomalies and recommendations for a run."""
+
+    store = get_run_store()
+    try:
+        record = store.get_run(run_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Run not found") from exc
+
+    if not record.reasoning_report:
+        raise HTTPException(
+            status_code=404, detail="Reasoning report not available for this run"
+        )
+    return record.reasoning_report
+
+
 @app.post("/run/{run_id}/graph/5d/ingest", status_code=200)
 async def ingest_run_5d_graph(run_id: str, request: Ingest5DRequest):
     """Manually ingest node and edge tuples into the 5D spatiotemporal graph."""

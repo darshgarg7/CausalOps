@@ -24,7 +24,15 @@ interface Props {
 
 type Node = {
   id: string;
-  node_type: "agent" | "asset" | "threat" | "artifact" | "causal_variable" | "user";
+  node_type:
+    | "agent"
+    | "asset"
+    | "threat"
+    | "artifact"
+    | "causal_variable"
+    | "user"
+    | "finding"
+    | "decision";
   label: string;
   description: string;
   location: {
@@ -69,7 +77,16 @@ export function SpatiotemporalKGPanelClient({ runId }: Props) {
   const [minConfidence, setMinConfidence] = useState<number>(0.0);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedTypes, setSelectedTypes] = useState<Set<string>>(
-    new Set(["agent", "asset", "threat", "artifact", "causal_variable", "user"])
+    new Set([
+      "agent",
+      "asset",
+      "threat",
+      "artifact",
+      "causal_variable",
+      "user",
+      "finding",
+      "decision",
+    ])
   );
   const [selectedZone, setSelectedZone] = useState<string>("all");
 
@@ -241,6 +258,10 @@ export function SpatiotemporalKGPanelClient({ runId }: Props) {
         return "#eed202"; // Gold/Amber
       case "user":
         return "#50f0aa"; // Green/Emerald
+      case "finding":
+        return "#ff7a50"; // Coral — reasoning-layer anomaly findings
+      case "decision":
+        return "#3ae8c8"; // Teal — reasoning-layer recommendations
       default:
         return "#a891ff";
     }
@@ -379,7 +400,16 @@ export function SpatiotemporalKGPanelClient({ runId }: Props) {
               <Filter className="h-3.5 w-3.5" />
               Types:
             </span>
-            {(["agent", "asset", "threat", "artifact", "causal_variable", "user"] as const).map(
+            {([
+              "agent",
+              "asset",
+              "threat",
+              "artifact",
+              "causal_variable",
+              "user",
+              "finding",
+              "decision",
+            ] as const).map(
               (type) => (
                 <button
                   key={type}
@@ -532,7 +562,9 @@ export function SpatiotemporalKGPanelClient({ runId }: Props) {
                 const alwaysLabel =
                   n.node_type === "agent" ||
                   n.node_type === "threat" ||
-                  n.node_type === "causal_variable";
+                  n.node_type === "causal_variable" ||
+                  n.node_type === "finding" ||
+                  n.node_type === "decision";
                 const showLabel = isSelected || isHovered || alwaysLabel || scale > 1.5;
                 if (showLabel) {
                   const fontSize = 9 / scale;
@@ -708,19 +740,4 @@ export function SpatiotemporalKGPanelClient({ runId }: Props) {
                   </div>
 
                   {Object.keys(selectedEdge.metadata).length > 0 && (
-                    <div className="space-y-1">
-                      <span className="text-[9px] uppercase tracking-wider text-muted-foreground">Metadata</span>
-                      <pre className="rounded border border-white/5 bg-black/40 p-2 font-mono text-[9px] text-foreground/90 overflow-x-auto">
-                        {JSON.stringify(selectedEdge.metadata, null, 2)}
-                      </pre>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </aside>
-        </div>
-      )}
-    </section>
-  );
-}
+         

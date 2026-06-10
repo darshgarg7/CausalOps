@@ -300,6 +300,7 @@ class GraphState(TypedDict):
     causal_dataset_profile: dict[str, Any] | None
     causal_estimate_report: dict[str, Any] | None
     causal_discovery_report: dict[str, Any] | None
+    reasoning_report: dict[str, Any] | None
 
 
 class ParentState(TypedDict):

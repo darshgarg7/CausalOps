@@ -22,6 +22,7 @@ from graph_5d import (
     ingest_causal,
     ingest_child,
     ingest_evidence_record,
+    ingest_findings,
     ingest_memo,
     ingest_orchestrator,
     ingest_parent,
@@ -71,6 +72,10 @@ def apply_envelope(conn: sqlite3.Connection, envelope: EventEnvelope) -> bool:
             _ingest_run_evidence(
                 conn, run_id, default_time=observed_at, causal_nodes=causal_nodes
             )
+        return True
+
+    if artifact_type == ArtifactType.REASONING_REPORT:
+        ingest_findings(conn, run_id, payload, observed_at=observed_at)
         return True
 
     return False

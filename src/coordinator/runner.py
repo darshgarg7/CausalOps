@@ -50,6 +50,7 @@ async def execute_run(
         await _dispatch_children(record, run_store)
         await _run_evaluator(record, run_store)
         await _run_causal_loop(record, run_store)
+        await _run_reasoner(record, run_store)
 
         # Build 5D Spatiotemporal KG Graph.
         #
@@ -176,3 +177,13 @@ async def _run_causal_loop(record: RunRecord, store: RunStore) -> None:
 
         if refutation_next_step(record.to_graph_state()) == "end":
             break
+
+
+async def _run_reasoner(record: RunRecord, store: RunStore) -> None:
+    from reasoning import reasoning_node
+
+    store.set_phase(record, "reasoning")
+    state = record.to_graph_state()
+    update = await asyncio.to_thread(reasoning_node, state)
+    record.apply_node_update(update)
+    store.save(record)

@@ -525,6 +525,109 @@ def ingest_causal(
             )
 
 
+def ingest_findings(
+    conn: sqlite3.Connection,
+    run_id: str,
+    report: dict[str, Any],
+    *,
+    observed_at: str,
+) -> None:
+    """Upsert reasoning-layer findings (anomalies) and decisions into the graph.
+
+    Anomaly nodes are placed in the flagged asset's own zone so spatial
+    clustering shows where anomalies concentrate; decision nodes live in the
+    analysis zone alongside the causal variables they cite.
+    """
+
+    # Asset locations let anomaly findings inherit the host's zone.
+    asset_locations: dict[str, dict[str, Any]] = {}
+    for row in conn.execute(
+        "SELECT node_id, location_json FROM spatiotemporal_nodes"
+        " WHERE run_id = ? AND node_type = 'asset'",
+        (run_id,),
+    ).fetchall():
+        try:
+            asset_locations[row["node_id"]] = json.loads(row["location_json"])
+        except Exception:
+            asset_locations[row["node_id"]] = {}
+
+    for anomaly in report.get("anomalies", []) or []:
+        asset_id = str(anomaly.get("asset_id", ""))
+        ast_node = f"asset.{asset_id.lower()}"
+        find_id = f"finding.anomaly.{asset_id.lower()}"
+        location = dict(asset_locations.get(ast_node) or {"subnet": anomaly.get("zone", "")})
+        location["tier"] = "reasoning"
+        severity = anomaly.get("severity", "medium")
+        log_st_node(
+            conn,
+            run_id=run_id,
+            node_id=find_id,
+            node_type="finding",
+            label=f"Anomaly: {asset_id}" + (" (unexplained)" if severity == "high" else ""),
+            description=anomaly.get("detail", ""),
+            location=location,
+            created_at=observed_at,
+        )
+        log_st_edge(
+            conn,
+            run_id=run_id,
+            subject_id=find_id,
+            predicate="flags",
+            object_id=ast_node,
+            observed_at=observed_at,
+            location=location,
+            confidence=1.0 - float(anomaly.get("baseline_rate") or 0.0),
+            edge_metadata={"severity": severity},
+        )
+        for cause in anomaly.get("explained_by", []) or []:
+            log_st_edge(
+                conn,
+                run_id=run_id,
+                subject_id=find_id,
+                predicate="attributed_to",
+                object_id=f"causal.{cause.get('variable')}",
+                observed_at=observed_at,
+                location=location,
+                confidence=0.8,
+                edge_metadata={
+                    "edge_status": cause.get("edge_status"),
+                    "p_value": cause.get("p_value"),
+                },
+            )
+
+    analysis_loc = {"tier": "reasoning", "zone": "analysis"}
+    for rec in report.get("recommendations", []) or []:
+        action = str(rec.get("action", "decision"))
+        dec_id = f"decision.{action.lower()}"
+        targets = rec.get("targets", []) or []
+        log_st_node(
+            conn,
+            run_id=run_id,
+            node_id=dec_id,
+            node_type="decision",
+            label=f"P{rec.get('priority', '?')}: {action.replace('_', ' ')}",
+            description=(
+                f"{rec.get('rationale', '')} "
+                f"[targets: {rec.get('target_count', len(targets))}, "
+                f"evidence: {json.dumps(rec.get('evidence', {}))}]"
+            ),
+            location=analysis_loc,
+            created_at=observed_at,
+        )
+        for target in targets:
+            log_st_edge(
+                conn,
+                run_id=run_id,
+                subject_id=dec_id,
+                predicate="recommends_for",
+                object_id=f"asset.{str(target).lower()}",
+                observed_at=observed_at,
+                location=analysis_loc,
+                confidence=1.0,
+                edge_metadata={"priority": rec.get("priority")},
+            )
+
+
 def ingest_evidence_record(
     conn: sqlite3.Connection,
     run_id: str,
@@ -746,3 +849,8 @@ def reconstruct_5d_graph(conn: sqlite3.Connection, run_id: str, record: Any) -> 
 
     for r in getattr(record, "evidence_records", []) or []:
         ingest_evidence_record(conn, run_id, r, causal_nodes, default_time=t_estimate)
+
+    reasoning_report = getattr(record, "reasoning_report", None)
+    if reasoning_report:
+        t_reasoning = (base_time + timedelta(seconds=12)).isoformat()
+        ingest_findings(conn, run_id, reasoning_report, observed_at=t_reasoning)
