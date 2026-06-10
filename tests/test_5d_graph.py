@@ -1,5 +1,29 @@
 import sqlite3
-from graph_5d import init_5d_schema, log_st_node, log_st_edge, get_5d_graph, reconstruct_5d_graph
+from graph_5d import (
+    _derive_location,
+    init_5d_schema,
+    log_st_node,
+    log_st_edge,
+    get_5d_graph,
+    reconstruct_5d_graph,
+)
+
+
+def test_derive_location_segments_hosts_into_zones():
+    # A real IP in the telemetry wins and yields its /24.
+    assert _derive_location({"IPAddress": "192.168.4.22"}, "host-005") == (
+        "192.168.4.0/24",
+        "192.168.4.22",
+    )
+    # host-NNN ids map to deterministic /24 segments (16 hosts each).
+    assert _derive_location({}, "host-000") == ("10.0.1.0/24", "10.0.1.10")
+    assert _derive_location({}, "host-016") == ("10.0.2.0/24", "10.0.2.10")
+    assert _derive_location({}, "host-079") == ("10.0.5.0/24", "10.0.5.25")
+    # Unknown asset with no IP stays in the broad space.
+    assert _derive_location({}, "service-xyz") == ("10.0.0.0/8", "")
+    # The 80-host demo dataset separates into 5 zones, not one.
+    segments = {_derive_location({}, f"host-{i:03d}")[0] for i in range(80)}
+    assert len(segments) == 5
 
 
 class MockRecord:

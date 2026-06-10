@@ -9,11 +9,48 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
+import re
 import sqlite3
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 from typing import Any, TypedDict
 
 logger = logging.getLogger(__name__)
+
+# The 5D graph lives in its own SQLite file, separate from runs.db. Run-state is
+# written by both the api and worker containers; the graph is written only by
+# the worker's stream consumer (or, in no-Kafka mode, only by the api during the
+# end-of-run backfill). Keeping them in separate files preserves the
+# single-writer-per-file invariant SQLite needs to avoid lock contention across
+# containers sharing a bind-mounted volume.
+DEFAULT_GRAPH_DB_PATH = Path("../data/graph_5d.db")
+
+
+def graph_db_path() -> Path:
+    """Resolve the 5D graph database path (overridable via env for tests)."""
+
+    return Path(os.getenv("HIVEMIND_GRAPH_DB_PATH", str(DEFAULT_GRAPH_DB_PATH)))
+
+
+def connect_graph_db(db_path: str | Path | None = None) -> sqlite3.Connection:
+    """Open (and lazily initialise) a connection to the dedicated graph DB."""
+
+    path = Path(db_path) if db_path is not None else graph_db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(path), timeout=30.0)
+    conn.row_factory = sqlite3.Row
+    try:
+        # Rollback-journal, not WAL — see RunStore._connect for rationale (WAL's
+        # shared-memory mmap is unreliable on Docker bind mounts).
+        conn.execute("PRAGMA journal_mode=DELETE;")
+        conn.execute("PRAGMA busy_timeout=30000;")
+        conn.execute("PRAGMA synchronous=NORMAL;")
+    except sqlite3.OperationalError:
+        pass
+    with conn:
+        init_5d_schema(conn)
+    return conn
 
 
 class STNode(TypedDict):
@@ -231,158 +268,188 @@ def seed_spatiotemporal_base(conn: sqlite3.Connection, run_id: str) -> None:
     )
 
 
-def reconstruct_5d_graph(conn: sqlite3.Connection, run_id: str, record: Any) -> None:
-    """Reconcile and rebuild the 5D spatiotemporal graph from a RunRecord's contents."""
+ORCHESTRATOR_ID = "agent.orchestrator"
 
-    logger.info("Reconstructing 5D Spatiotemporal KG for run %s", run_id)
-    
-    # Establish a timeline starting at run creation (or current time if missing)
-    base_time = datetime.now(timezone.utc)
-    t_orchestrator = base_time.isoformat()
-    t_parents = (base_time + timedelta(seconds=2)).isoformat()
-    t_children = (base_time + timedelta(seconds=4)).isoformat()
-    t_memos = (base_time + timedelta(seconds=6)).isoformat()
-    t_causal = (base_time + timedelta(seconds=8)).isoformat()
-    t_estimate = (base_time + timedelta(seconds=10)).isoformat()
 
-    # 1. Base Orchestrator Node
+def _field(obj: Any, key: str, default: Any = "") -> Any:
+    """Read ``key`` from either a dict payload or a pydantic/dataclass object."""
+
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
+def _slug(value: str) -> str:
+    return value.replace(" ", "_").lower()
+
+
+# --- Per-section ingest helpers -------------------------------------------------
+# Each helper applies one slice of the graph from a single payload (dict or
+# object) at a given observed time. They are shared by the batch reconstruction
+# and the incremental Kafka stream so both converge on identical, idempotent
+# node/edge state regardless of ingestion path.
+
+
+def ingest_orchestrator(
+    conn: sqlite3.Connection, run_id: str, *, observed_at: str
+) -> None:
+    """Upsert the grand orchestrator root node."""
+
     log_st_node(
         conn,
         run_id=run_id,
-        node_id="agent.orchestrator",
+        node_id=ORCHESTRATOR_ID,
         node_type="agent",
         label="Grand Orchestrator",
         description="Core coordinator decomposing incidents",
         location={"tier": "orchestrator", "zone": "swarm"},
-        created_at=t_orchestrator,
+        created_at=observed_at,
     )
 
-    # 2. Parent configurations and spawns
-    parent_configs = getattr(record, "parent_configs", []) or []
-    for parent in parent_configs:
-        persona = getattr(parent, "persona", "")
-        if not persona:
+
+def ingest_parent(
+    conn: sqlite3.Connection, run_id: str, parent: Any, *, observed_at: str
+) -> None:
+    """Upsert one parent agent node and its spawn edge from the orchestrator."""
+
+    persona = _field(parent, "persona")
+    if not persona:
+        return
+    p_id = f"agent.parent.{_slug(persona)}"
+    log_st_node(
+        conn,
+        run_id=run_id,
+        node_id=p_id,
+        node_type="agent",
+        label=f"{persona} Parent",
+        description=_field(parent, "focus_objective"),
+        location={"tier": "parent", "domain": persona, "zone": "swarm"},
+        created_at=observed_at,
+    )
+    log_st_edge(
+        conn,
+        run_id=run_id,
+        subject_id=ORCHESTRATOR_ID,
+        predicate="spawns",
+        object_id=p_id,
+        observed_at=observed_at,
+        location={"tier": "orchestrator", "zone": "swarm"},
+    )
+
+
+def ingest_child(
+    conn: sqlite3.Connection, run_id: str, child: Any, *, observed_at: str
+) -> None:
+    """Upsert one child agent node and its spawn edge from its parent."""
+
+    persona = _field(child, "persona")
+    parent_persona = _field(child, "parent_persona")
+    if not persona:
+        return
+    c_id = f"agent.child.{_slug(persona)}"
+    p_id = f"agent.parent.{_slug(parent_persona)}" if parent_persona else ORCHESTRATOR_ID
+    log_st_node(
+        conn,
+        run_id=run_id,
+        node_id=c_id,
+        node_type="agent",
+        label=f"{persona} Child",
+        description=_field(child, "focus_objective"),
+        location={
+            "tier": "child",
+            "domain": persona,
+            "parent_domain": parent_persona,
+            "zone": "swarm",
+        },
+        created_at=observed_at,
+    )
+    log_st_edge(
+        conn,
+        run_id=run_id,
+        subject_id=p_id,
+        predicate="spawns",
+        object_id=c_id,
+        observed_at=observed_at,
+        location={"tier": "parent", "zone": "swarm"},
+    )
+
+
+def ingest_memo(
+    conn: sqlite3.Connection,
+    run_id: str,
+    memo: Any,
+    child_configs: Any,
+    *,
+    observed_at: str,
+) -> None:
+    """Upsert one decision memo node and its submit/evaluation edges."""
+
+    perspective = _field(memo, "perspective")
+    strategy = _field(memo, "strategy")
+    risks = _field(memo, "risks", []) or []
+    confidence = _field(memo, "confidence", "N/A")
+    if not perspective:
+        return
+
+    memo_hash = hashlib.sha256(f"{perspective}-{strategy}".encode()).hexdigest()[:8]
+    m_id = f"artifact.memo.{memo_hash}"
+    log_st_node(
+        conn,
+        run_id=run_id,
+        node_id=m_id,
+        node_type="artifact",
+        label=f"Memo: {perspective[:30]}...",
+        description=strategy,
+        location={"tier": "evaluator", "zone": "swarm"},
+        created_at=observed_at,
+    )
+
+    # Map the memo back to the child persona that authored it.
+    matching_child_id = ORCHESTRATOR_ID
+    for child in child_configs or []:
+        child_persona = _field(child, "persona")
+        if not child_persona:
             continue
-        p_id = f"agent.parent.{persona.replace(' ', '_').lower()}"
-        log_st_node(
-            conn,
-            run_id=run_id,
-            node_id=p_id,
-            node_type="agent",
-            label=f"{persona} Parent",
-            description=getattr(parent, "focus_objective", ""),
-            location={"tier": "parent", "domain": persona, "zone": "swarm"},
-            created_at=t_orchestrator,
-        )
-        log_st_edge(
-            conn,
-            run_id=run_id,
-            subject_id="agent.orchestrator",
-            predicate="spawns",
-            object_id=p_id,
-            observed_at=t_orchestrator,
-            location={"tier": "orchestrator", "zone": "swarm"},
-        )
+        if (
+            child_persona.lower() in perspective.lower()
+            or perspective.lower() in child_persona.lower()
+        ):
+            matching_child_id = f"agent.child.{_slug(child_persona)}"
+            break
 
-    # 3. Child configurations and spawns
-    child_configs = getattr(record, "child_configs", []) or []
-    for child in child_configs:
-        persona = getattr(child, "persona", "")
-        parent_persona = getattr(child, "parent_persona", "")
-        if not persona:
-            continue
-        c_id = f"agent.child.{persona.replace(' ', '_').lower()}"
-        p_id = f"agent.parent.{parent_persona.replace(' ', '_').lower()}"
-        
-        log_st_node(
-            conn,
-            run_id=run_id,
-            node_id=c_id,
-            node_type="agent",
-            label=f"{persona} Child",
-            description=getattr(child, "focus_objective", ""),
-            location={"tier": "child", "domain": persona, "parent_domain": parent_persona, "zone": "swarm"},
-            created_at=t_parents,
-        )
-        log_st_edge(
-            conn,
-            run_id=run_id,
-            subject_id=p_id if parent_persona else "agent.orchestrator",
-            predicate="spawns",
-            object_id=c_id,
-            observed_at=t_parents,
-            location={"tier": "parent", "zone": "swarm"},
-        )
+    log_st_edge(
+        conn,
+        run_id=run_id,
+        subject_id=matching_child_id,
+        predicate="submits",
+        object_id=m_id,
+        observed_at=observed_at,
+        location={"tier": "child", "zone": "swarm"},
+    )
+    log_st_edge(
+        conn,
+        run_id=run_id,
+        subject_id=m_id,
+        predicate="evaluated_by",
+        object_id=ORCHESTRATOR_ID,
+        observed_at=observed_at,
+        location={"tier": "evaluator", "zone": "swarm"},
+        confidence=1.0,
+        edge_metadata={"confidence_tier": confidence, "risks_count": len(risks)},
+    )
 
-    # 4. Decision Memos and submissions
-    memos = getattr(record, "memos", []) or []
-    for memo in memos:
-        # Retrieve values checking dict and class attributes
-        if isinstance(memo, dict):
-            perspective = memo.get("perspective", "")
-            strategy = memo.get("strategy", "")
-            risks = memo.get("risks", [])
-            confidence = memo.get("confidence", "N/A")
-        else:
-            perspective = getattr(memo, "perspective", "")
-            strategy = getattr(memo, "strategy", "")
-            risks = getattr(memo, "risks", [])
-            confidence = getattr(memo, "confidence", "N/A")
 
-        if not perspective:
-            continue
+def ingest_causal(
+    conn: sqlite3.Connection,
+    run_id: str,
+    causal_graph: dict[str, Any],
+    *,
+    observed_at: str,
+) -> None:
+    """Upsert causal variable nodes and the causal DAG edges between them."""
 
-        memo_hash = hashlib.sha256(f"{perspective}-{strategy}".encode()).hexdigest()[:8]
-        m_id = f"artifact.memo.{memo_hash}"
-        
-        log_st_node(
-            conn,
-            run_id=run_id,
-            node_id=m_id,
-            node_type="artifact",
-            label=f"Memo: {perspective[:30]}...",
-            description=strategy,
-            location={"tier": "evaluator", "zone": "swarm"},
-            created_at=t_children,
-        )
-
-        # Draw edge from the child agent that submitted this memo
-        # Attempt to map perspective back to child persona
-        matching_child_id = "agent.orchestrator"
-        for child in child_configs:
-            child_persona = getattr(child, "persona", "")
-            if child_persona.lower() in perspective.lower() or perspective.lower() in child_persona.lower():
-                matching_child_id = f"agent.child.{child_persona.replace(' ', '_').lower()}"
-                break
-
-        log_st_edge(
-            conn,
-            run_id=run_id,
-            subject_id=matching_child_id,
-            predicate="submits",
-            object_id=m_id,
-            observed_at=t_children,
-            location={"tier": "child", "zone": "swarm"},
-        )
-        
-        # Link to orchestrator evaluation
-        log_st_edge(
-            conn,
-            run_id=run_id,
-            subject_id=m_id,
-            predicate="evaluated_by",
-            object_id="agent.orchestrator",
-            observed_at=t_memos,
-            location={"tier": "evaluator", "zone": "swarm"},
-            confidence=1.0,
-            edge_metadata={"confidence_tier": confidence, "risks_count": len(risks)},
-        )
-
-    # 5. Causal variables and Causal graph edges
-    causal_payload = getattr(record, "causal_payload", None) or {}
-    causal_graph = causal_payload.get("graph", {})
-    causal_nodes = causal_graph.get("nodes", [])
-    causal_edges = causal_graph.get("edges", [])
+    causal_nodes = (causal_graph or {}).get("nodes", []) or []
+    causal_edges = (causal_graph or {}).get("edges", []) or []
 
     for c_node in causal_nodes:
         n_id = f"causal.{c_node.get('id')}"
@@ -394,153 +461,288 @@ def reconstruct_5d_graph(conn: sqlite3.Connection, run_id: str, record: Any) -> 
             label=c_node.get("label", c_node.get("id")),
             description=c_node.get("description", ""),
             location={"tier": "causal", "zone": "analysis"},
-            created_at=t_causal,
+            created_at=observed_at,
         )
 
     for c_edge in causal_edges:
         src = f"causal.{c_edge.get('source')}"
         tgt = f"causal.{c_edge.get('target')}"
+        status = c_edge.get("status", "hypothesized")
+        metadata = {"status": status}
+        if c_edge.get("p_value") is not None:
+            metadata["p_value"] = c_edge["p_value"]
+        if c_edge.get("validation_detail"):
+            metadata["detail"] = c_edge["validation_detail"]
+        # Confidence reflects how the data judged the edge, not blind trust in
+        # the hypothesis: validated edges carry their association strength,
+        # unvalidated hypotheses sit at 0.5, refuted edges are floored.
+        if status in ("confirmed", "compatible", "reversed", "discovered"):
+            confidence = float(c_edge.get("strength") or 0.75)
+        elif status == "refuted":
+            confidence = 0.05
+        else:
+            confidence = 0.5
+
+        # A data-reversed edge replaces the hypothesized opposite direction.
+        if status == "reversed":
+            conn.execute(
+                """
+                DELETE FROM spatiotemporal_edges
+                WHERE run_id = ? AND subject_id = ? AND object_id = ?
+                """,
+                (run_id, tgt, src),
+            )
+
+        # The causal DAG is a single evolving structure: a later validation
+        # pass updates the edge in place rather than appending a duplicate
+        # observation between the same variables.
+        updated = conn.execute(
+            """
+            UPDATE spatiotemporal_edges
+            SET predicate = ?, confidence = ?, edge_metadata_json = ?
+            WHERE run_id = ? AND subject_id = ? AND object_id = ?
+            """,
+            (
+                c_edge.get("relationship", "influences"),
+                confidence,
+                json.dumps(metadata),
+                run_id,
+                src,
+                tgt,
+            ),
+        )
+        if updated.rowcount == 0:
+            log_st_edge(
+                conn,
+                run_id=run_id,
+                subject_id=src,
+                predicate=c_edge.get("relationship", "influences"),
+                object_id=tgt,
+                observed_at=observed_at,
+                location={"tier": "causal", "zone": "analysis"},
+                confidence=confidence,
+                edge_metadata=metadata,
+            )
+
+
+def ingest_evidence_record(
+    conn: sqlite3.Connection,
+    run_id: str,
+    r: dict[str, Any],
+    causal_nodes: list[dict[str, Any]] | None = None,
+    *,
+    default_time: str,
+) -> None:
+    """Upsert the asset/user/threat/event nodes for one evidence record.
+
+    ``causal_nodes`` is used to link measured asset fields to causal variables;
+    pass the currently-known causal nodes (may be empty if causal synthesis has
+    not run yet — measurement edges are added later when it has).
+    """
+
+    causal_nodes = causal_nodes or []
+    src_type = r.get("source_type", "siem")
+    src_name = r.get("source_name", "manual")
+    observed_at = r.get("observed_at") or default_time
+    asset_id = r.get("asset_id")
+    user_id = r.get("user_id")
+    cve_id = r.get("cve_id")
+    event_type = r.get("event_type")
+    fields = r.get("extracted_fields") or {}
+    confidence = float(r.get("confidence", 1.0))
+
+    # Derive the spatial dimension (subnet + ip) from telemetry or asset id.
+    subnet, ip = _derive_location(fields, asset_id)
+
+    location_data = {"subnet": subnet, "ip": ip, "source": src_name, "source_type": src_type}
+
+    if not asset_id:
+        return
+
+    ast_id = f"asset.{asset_id.lower()}"
+    log_st_node(
+        conn,
+        run_id=run_id,
+        node_id=ast_id,
+        node_type="asset",
+        label=f"Asset: {asset_id}",
+        description=f"Type: {src_type} | Source: {src_name}",
+        location=location_data,
+        created_at=observed_at,
+    )
+
+    # Map user access
+    if user_id:
+        usr_id = f"user.{user_id.lower()}"
+        log_st_node(
+            conn,
+            run_id=run_id,
+            node_id=usr_id,
+            node_type="user",
+            label=f"User: {user_id}",
+            description="User identity triggering telemetry",
+            location=location_data,
+            created_at=observed_at,
+        )
         log_st_edge(
             conn,
             run_id=run_id,
-            subject_id=src,
-            predicate=c_edge.get("relationship", "influences"),
-            object_id=tgt,
-            observed_at=t_causal,
-            location={"tier": "causal", "zone": "analysis"},
-            confidence=1.0,
+            subject_id=usr_id,
+            predicate="accessed",
+            object_id=ast_id,
+            observed_at=observed_at,
+            location=location_data,
+            confidence=confidence,
         )
 
-    # 6. Physical assets, users, and evidence records mapping
-    evidence_records = getattr(record, "evidence_records", []) or []
-    for r in evidence_records:
-        src_type = r.get("source_type", "siem")
-        src_name = r.get("source_name", "manual")
-        observed_at = r.get("observed_at") or t_estimate
-        asset_id = r.get("asset_id")
-        user_id = r.get("user_id")
-        cve_id = r.get("cve_id")
-        event_type = r.get("event_type")
-        fields = r.get("extracted_fields") or {}
-        confidence = float(r.get("confidence", 1.0))
+    # Map CVE vulnerability threat
+    if cve_id:
+        thr_id = f"threat.{cve_id.lower()}"
+        log_st_node(
+            conn,
+            run_id=run_id,
+            node_id=thr_id,
+            node_type="threat",
+            label=cve_id,
+            description="Identified CVE Vulnerability",
+            location={"zone": "external_intel"},
+            created_at=observed_at,
+        )
+        log_st_edge(
+            conn,
+            run_id=run_id,
+            subject_id=ast_id,
+            predicate="vulnerable_to",
+            object_id=thr_id,
+            observed_at=observed_at,
+            location=location_data,
+            confidence=confidence,
+        )
 
-        # Logical IP subnet parsing from asset id / fields
-        ip = fields.get("ip") or fields.get("IPAddress") or fields.get("Computer") or ""
-        subnet = "10.0.0.0/8"
-        if "10.0.1" in ip or "host-001" in str(asset_id):
-            subnet = "10.0.1.0/24"
-        elif "10.0.2" in ip or "host-002" in str(asset_id):
-            subnet = "10.0.2.0/24"
-        elif "10.0.3" in ip:
-            subnet = "10.0.3.0/24"
+    # Map telemetry alerts. Key the event node on (asset, type, time) so
+    # repeated identical observations collapse onto one node instead of
+    # producing a new dot per evidence row.
+    if event_type:
+        evt_key = hashlib.sha256(
+            f"{ast_id}-{event_type}-{observed_at}".encode()
+        ).hexdigest()[:8]
+        evt_id = f"event.{event_type.replace(' ', '_').lower()}.{evt_key}"
+        log_st_node(
+            conn,
+            run_id=run_id,
+            node_id=evt_id,
+            node_type="artifact",
+            label=event_type,
+            description=r.get("raw_text", "Telemetry event details"),
+            location=location_data,
+            created_at=observed_at,
+        )
+        log_st_edge(
+            conn,
+            run_id=run_id,
+            subject_id=ast_id,
+            predicate="triggered",
+            object_id=evt_id,
+            observed_at=observed_at,
+            location=location_data,
+            confidence=confidence,
+        )
 
-        location_data = {"subnet": subnet, "ip": ip, "source": src_name, "source_type": src_type}
-
-        # Handle Asset Node
-        if asset_id:
-            ast_id = f"asset.{asset_id.lower()}"
-            log_st_node(
-                conn,
-                run_id=run_id,
-                node_id=ast_id,
-                node_type="asset",
-                label=f"Asset: {asset_id}",
-                description=f"Type: {src_type} | Source: {src_name}",
-                location=location_data,
-                created_at=observed_at,
-            )
-
-            # Map user access
-            if user_id:
-                usr_id = f"user.{user_id.lower()}"
-                log_st_node(
-                    conn,
-                    run_id=run_id,
-                    node_id=usr_id,
-                    node_type="user",
-                    label=f"User: {user_id}",
-                    description="User identity triggering telemetry",
-                    location=location_data,
-                    created_at=observed_at,
-                )
-                log_st_edge(
-                    conn,
-                    run_id=run_id,
-                    subject_id=usr_id,
-                    predicate="accessed",
-                    object_id=ast_id,
-                    observed_at=observed_at,
-                    location=location_data,
-                    confidence=confidence,
-                )
-
-            # Map CVE vulnerability threat
-            if cve_id:
-                thr_id = f"threat.{cve_id.lower()}"
-                log_st_node(
-                    conn,
-                    run_id=run_id,
-                    node_id=thr_id,
-                    node_type="threat",
-                    label=cve_id,
-                    description="Identified CVE Vulnerability",
-                    location={"zone": "external_intel"},
-                    created_at=observed_at,
-                )
+    # Map fields to causal variables if matching
+    for field_name, field_val in fields.items():
+        for c_node in causal_nodes:
+            c_id = c_node.get("id")
+            if str(c_id).lower() == str(field_name).lower() and field_val:
                 log_st_edge(
                     conn,
                     run_id=run_id,
                     subject_id=ast_id,
-                    predicate="vulnerable_to",
-                    object_id=thr_id,
+                    predicate=f"measured_as_{c_id}",
+                    object_id=f"causal.{c_id}",
                     observed_at=observed_at,
                     location=location_data,
                     confidence=confidence,
+                    edge_metadata={"measured_value": field_val},
                 )
 
-            # Map telemetry alerts. Key the event node on (asset, type, time) so
-            # repeated identical observations collapse onto one node instead of
-            # producing a new dot per evidence row.
-            if event_type:
-                evt_key = hashlib.sha256(
-                    f"{ast_id}-{event_type}-{observed_at}".encode()
-                ).hexdigest()[:8]
-                evt_id = f"event.{event_type.replace(' ', '_').lower()}.{evt_key}"
-                log_st_node(
-                    conn,
-                    run_id=run_id,
-                    node_id=evt_id,
-                    node_type="artifact",
-                    label=event_type,
-                    description=r.get("raw_text", "Telemetry event details"),
-                    location=location_data,
-                    created_at=observed_at,
-                )
-                log_st_edge(
-                    conn,
-                    run_id=run_id,
-                    subject_id=ast_id,
-                    predicate="triggered",
-                    object_id=evt_id,
-                    observed_at=observed_at,
-                    location=location_data,
-                    confidence=confidence,
-                )
 
-            # Map fields to causal variables if matching
-            for field_name, field_val in fields.items():
-                # If fields match any causal variables, connect asset to causal node
-                for c_node in causal_nodes:
-                    c_id = c_node.get("id")
-                    if str(c_id).lower() == str(field_name).lower() and field_val:
-                        log_st_edge(
-                            conn,
-                            run_id=run_id,
-                            subject_id=ast_id,
-                            predicate=f"measured_as_{c_id}",
-                            object_id=f"causal.{c_id}",
-                            observed_at=observed_at,
-                            location=location_data,
-                            confidence=confidence,
-                            edge_metadata={"measured_value": field_val},
-                        )
+_IP_FIELD_KEYS = (
+    "ip",
+    "IPAddress",
+    "IpAddress",
+    "SourceIP",
+    "src_ip",
+    "DeviceIP",
+    "DestinationIP",
+)
+_IP_RE = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")
+_HOST_RE = re.compile(r"host[-_]?(\d+)", re.IGNORECASE)
+
+# Number of hosts grouped into each /24 segment when deriving zones from host ids.
+_HOSTS_PER_SEGMENT = 16
+
+
+def _derive_location(fields: dict[str, Any], asset_id: Any) -> tuple[str, str]:
+    """Resolve (subnet, ip) for an evidence record — the graph's spatial axis.
+
+    Priority:
+      1. A real IP present in the telemetry fields -> its /24 and the IP itself.
+      2. A ``host-NNN`` asset id -> a deterministic /24 segment (and a stable
+         synthetic host IP within it) so hosts actually separate into zones
+         instead of collapsing into one /8.
+      3. Otherwise the broad 10.0.0.0/8 space with no IP.
+    """
+
+    for key in _IP_FIELD_KEYS:
+        val = fields.get(key)
+        if val and _IP_RE.match(str(val).strip()):
+            ip = str(val).strip()
+            a, b, c, _ = ip.split(".")
+            return f"{a}.{b}.{c}.0/24", ip
+
+    match = _HOST_RE.search(str(asset_id or ""))
+    if match:
+        n = int(match.group(1))
+        segment = (n // _HOSTS_PER_SEGMENT) + 1
+        host_octet = (n % _HOSTS_PER_SEGMENT) + 10
+        return f"10.0.{segment}.0/24", f"10.0.{segment}.{host_octet}"
+
+    return "10.0.0.0/8", ""
+
+
+def reconstruct_5d_graph(conn: sqlite3.Connection, run_id: str, record: Any) -> None:
+    """Rebuild the full 5D graph from a RunRecord (batch backfill / no-Kafka mode).
+
+    Uses staged synthetic timestamps for the agent tier so a snapshot-only
+    rebuild still produces an ordered timeline. The incremental stream
+    (``graph_5d_stream``) instead stamps these with real event times.
+    """
+
+    logger.info("Reconstructing 5D Spatiotemporal KG for run %s", run_id)
+
+    base_time = datetime.now(timezone.utc)
+    t_orchestrator = base_time.isoformat()
+    t_parents = (base_time + timedelta(seconds=2)).isoformat()
+    t_children = (base_time + timedelta(seconds=4)).isoformat()
+    t_causal = (base_time + timedelta(seconds=8)).isoformat()
+    t_estimate = (base_time + timedelta(seconds=10)).isoformat()
+
+    ingest_orchestrator(conn, run_id, observed_at=t_orchestrator)
+
+    for parent in getattr(record, "parent_configs", []) or []:
+        ingest_parent(conn, run_id, parent, observed_at=t_orchestrator)
+
+    child_configs = getattr(record, "child_configs", []) or []
+    for child in child_configs:
+        ingest_child(conn, run_id, child, observed_at=t_parents)
+
+    for memo in getattr(record, "memos", []) or []:
+        ingest_memo(conn, run_id, memo, child_configs, observed_at=t_children)
+
+    causal_payload = getattr(record, "causal_payload", None) or {}
+    causal_graph = causal_payload.get("graph", {}) or {}
+    ingest_causal(conn, run_id, causal_graph, observed_at=t_causal)
+    causal_nodes = causal_graph.get("nodes", []) or []
+
+    for r in getattr(record, "evidence_records", []) or []:
+        ingest_evidence_record(conn, run_id, r, causal_nodes, default_time=t_estimate)

@@ -139,8 +139,15 @@ class RunStore:
         conn = sqlite3.connect(str(self.db_path), timeout=30.0)
         conn.row_factory = sqlite3.Row
         try:
-            conn.execute("PRAGMA journal_mode=WAL;")
-            conn.execute("PRAGMA busy_timeout=5000;")
+            # Rollback-journal (not WAL): WAL needs shared-memory mmap of a -shm
+            # file, which is unreliable on Docker bind-mounted volumes (virtiofs/
+            # gRPC-FUSE behave like a network FS) and surfaces as "disk I/O
+            # error" / "locking protocol". DELETE mode uses only POSIX locks; a
+            # generous busy_timeout lets concurrent api/worker access queue
+            # instead of failing.
+            conn.execute("PRAGMA journal_mode=DELETE;")
+            conn.execute("PRAGMA busy_timeout=30000;")
+            conn.execute("PRAGMA synchronous=NORMAL;")
         except sqlite3.OperationalError:
             pass
         return conn
@@ -174,20 +181,21 @@ class RunStore:
                     )
                     """
                 )
-                from graph_5d import init_5d_schema
-                init_5d_schema(conn)
         finally:
             conn.close()
 
     def get_5d_graph(self, run_id: str) -> dict[str, Any]:
-        """Fetch the compiled 5D spatiotemporal graph nodes and edges."""
+        """Fetch the compiled 5D spatiotemporal graph nodes and edges.
 
-        from graph_5d import get_5d_graph as fetch_5d
-        conn = self._connect()
+        Reads from the dedicated graph DB (written by the worker's stream
+        consumer), not runs.db.
+        """
+
+        from graph_5d import connect_graph_db, get_5d_graph as fetch_5d
+        conn = connect_graph_db()
         try:
             with conn:
-                res = fetch_5d(conn, run_id)
-                return res
+                return fetch_5d(conn, run_id)
         finally:
             conn.close()
 
@@ -211,13 +219,6 @@ class RunStore:
             status=status,
         )
         self.save(record)
-        conn = self._connect()
-        try:
-            with conn:
-                from graph_5d import seed_spatiotemporal_base
-                seed_spatiotemporal_base(conn, run_id)
-        finally:
-            conn.close()
         return record
 
     def enqueue_run(
@@ -239,13 +240,6 @@ class RunStore:
             status="queued",
         )
         self.save(record)
-        conn = self._connect()
-        try:
-            with conn:
-                from graph_5d import seed_spatiotemporal_base
-                seed_spatiotemporal_base(conn, run_id)
-        finally:
-            conn.close()
         return record
 
     def set_status(

@@ -8,6 +8,7 @@ import signal
 
 from bus.producer import start_producer, stop_producer
 from worker.consumer import run_spawn_consumer
+from worker.graph_consumer import run_graph_consumer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -20,7 +21,11 @@ async def _run() -> None:
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, stop_event.set)
     try:
-        await run_spawn_consumer(stop_event=stop_event)
+        # Spawn dispatch and 5D graph ingestion run concurrently in the worker.
+        await asyncio.gather(
+            run_spawn_consumer(stop_event=stop_event),
+            run_graph_consumer(stop_event=stop_event),
+        )
     finally:
         await stop_producer()
 
