@@ -15,6 +15,7 @@ from typing import Any
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import AzureChatOpenAI
 
+from causal_discovery import apply_discovery, discover_and_validate, estimation_edges
 from dataset_compiler import clean_variable, compile_evidence_dataset
 from demo_fixtures import demo_causal_payload, is_demo_evidence
 from estimators import estimate_causal_effect
@@ -125,8 +126,30 @@ def dowhy_engine_node(state: GraphState):
     evidence_records = state.get("evidence_records", []) or []
 
     compilation = compile_evidence_dataset(graph_def, evidence_records)
-    report = estimate_causal_effect(graph_def, compilation.dataframe, compilation.profile)
+
+    # Item (b): the DAG must emerge from the data, not just be assumed.
+    # Independence tests validate every hypothesized edge (confirm / refute /
+    # reverse) and surface dependencies the hypothesis missed; estimation then
+    # runs on the validated structure.
+    discovery = discover_and_validate(compilation.dataframe, graph_def.get("edges", []))
+    validated_graph = apply_discovery(graph_def, discovery)
+    discovery_dict = discovery.as_dict()
+    refuted = [v for v in discovery.verdicts if v.status == "refuted"]
+    if refuted:
+        logger.info(
+            "Causal discovery refuted %d hypothesized edge(s): %s",
+            len(refuted),
+            ", ".join(f"{v.source}->{v.target}" for v in refuted),
+        )
+
+    estimation_graph = {**validated_graph, "edges": estimation_edges(validated_graph)}
+    report = estimate_causal_effect(
+        estimation_graph, compilation.dataframe, compilation.profile
+    )
     report_dict = report.model_dump()
+    report_dict["warnings"] = list(report_dict.get("warnings") or []) + list(
+        discovery.warnings
+    )
     if is_demo_evidence(evidence_records):
         report_dict.setdefault("warnings", []).insert(
             0,
@@ -164,6 +187,16 @@ def dowhy_engine_node(state: GraphState):
         artifact_type=ArtifactType.CAUSAL_ESTIMATE_REPORT,
         payload=report_dict,
     )
+    # Re-publish the causal payload with the validated DAG so the streaming 5D
+    # graph consumer updates edge statuses (refuted edges get downgraded, the
+    # collider-oriented and discovered structure replaces the bare hypothesis).
+    validated_payload = {**payload, "graph": validated_graph, "discovery": discovery_dict}
+    publish_artifact(
+        agent_id="estimator",
+        tier="estimator",
+        artifact_type=ArtifactType.CAUSAL_PAYLOAD,
+        payload=validated_payload,
+    )
     publish_telemetry(
         agent_id="estimator",
         tier="estimator",
@@ -173,6 +206,8 @@ def dowhy_engine_node(state: GraphState):
     )
 
     return {
+        "causal_payload": validated_payload,
+        "causal_discovery_report": discovery_dict,
         "dowhy_results": legacy_results,
         "causal_estimate_report": report_dict,
         "causal_dataset_profile": compilation.profile.model_dump(),
