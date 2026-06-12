@@ -65,7 +65,11 @@ export function SpatiotemporalKGPanelClient({ runId }: Props) {
 
   // Replay & Timeline State
   const [playing, setPlaying] = useState(false);
-  const [timelineOffset, setTimelineOffset] = useState<number>(0);
+  // Scrubbing happens in event-rank space (k-th distinct event timestamp),
+  // not linear wall-clock time: telemetry is often weeks older than the run
+  // events, and a linear axis would compress all activity into the ends.
+  const [timelineIndex, setTimelineIndex] = useState<number>(0);
+  const [eventTimes, setEventTimes] = useState<number[]>([]);
   const [minTime, setMinTime] = useState<number>(0);
   const [maxTime, setMaxTime] = useState<number>(0);
   const [activeTimeISO, setActiveTimeISO] = useState<string>("");
@@ -111,15 +115,15 @@ export function SpatiotemporalKGPanelClient({ runId }: Props) {
         if (e.observed_at) timestamps.push(new Date(e.observed_at).getTime());
       });
 
-      const earliest = timestamps.length ? Math.min(...timestamps) : Date.now();
-      const latest = timestamps.length ? Math.max(...timestamps) : Date.now() + 10000;
-      
-      const paddedEarliest = earliest - 1000; // Pad slightly
-      const paddedLatest = latest === earliest ? latest + 10000 : latest + 2000;
+      // Distinct, sorted event instants: the scrubber steps through these.
+      const distinct = Array.from(new Set(timestamps)).sort((a, b) => a - b);
+      const earliest = distinct.length ? distinct[0] : Date.now();
+      const latest = distinct.length ? distinct[distinct.length - 1] : Date.now();
 
-      setMinTime(paddedEarliest);
-      setMaxTime(paddedLatest);
-      setTimelineOffset(paddedLatest - paddedEarliest); // Set slider at the end by default
+      setEventTimes(distinct);
+      setMinTime(earliest);
+      setMaxTime(latest);
+      setTimelineIndex(Math.max(distinct.length - 1, 0)); // Slider at the end by default
       setLoading(false);
     } catch (err) {
       console.error(err);
@@ -134,25 +138,27 @@ export function SpatiotemporalKGPanelClient({ runId }: Props) {
 
   // Handle Playback animation
   useEffect(() => {
-    if (!playing || minTime >= maxTime) {
+    if (!playing || eventTimes.length < 2) {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       return;
     }
 
-    const duration = maxTime - minTime;
+    const lastIndex = eventTimes.length - 1;
+    // Steady event rate: a full sweep takes ~250ms per event, clamped to 8-30s
+    // of real time, regardless of how unevenly the events sit on the clock.
+    const sweepMs = Math.min(Math.max(eventTimes.length * 250, 8000), 30000);
+    const eventsPerMs = lastIndex / sweepMs;
     lastTickRef.current = performance.now();
 
     const tick = (now: number) => {
       const delta = now - lastTickRef.current;
       lastTickRef.current = now;
 
-      // Map playback speed: 1 real second = 1 second of event timeline
-      const speedMultiplier = 1.0;
-      setTimelineOffset((prev) => {
-        const next = prev + delta * speedMultiplier;
-        if (next >= duration) {
+      setTimelineIndex((prev) => {
+        const next = prev + delta * eventsPerMs;
+        if (next >= lastIndex) {
           setPlaying(false);
-          return duration;
+          return lastIndex;
         }
         return next;
       });
@@ -165,9 +171,12 @@ export function SpatiotemporalKGPanelClient({ runId }: Props) {
     return () => {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     };
-  }, [playing, minTime, maxTime]);
+  }, [playing, eventTimes]);
 
-  const activeTimestamp = minTime + timelineOffset;
+  const eventCursor = eventTimes.length
+    ? Math.min(Math.floor(timelineIndex), eventTimes.length - 1)
+    : 0;
+  const activeTimestamp = eventTimes.length ? eventTimes[eventCursor] : maxTime;
 
   // Synchronize active date ISO string for display
   useEffect(() => {
@@ -360,7 +369,7 @@ export function SpatiotemporalKGPanelClient({ runId }: Props) {
               type="button"
               onClick={() => {
                 setPlaying(false);
-                setTimelineOffset(0);
+                setTimelineIndex(0);
               }}
               className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-muted-foreground transition-colors hover:text-foreground"
             >
@@ -372,11 +381,12 @@ export function SpatiotemporalKGPanelClient({ runId }: Props) {
             <input
               type="range"
               min={0}
-              max={maxTime - minTime || 100}
-              value={timelineOffset}
+              max={Math.max(eventTimes.length - 1, 1)}
+              step={1}
+              value={timelineIndex}
               onChange={(e) => {
                 setPlaying(false);
-                setTimelineOffset(Number(e.target.value));
+                setTimelineIndex(Number(e.target.value));
               }}
               className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/10 accent-[color:var(--neon-cyan)]"
             />
@@ -386,7 +396,9 @@ export function SpatiotemporalKGPanelClient({ runId }: Props) {
                 {new Date(minTime).toLocaleTimeString()}
               </span>
               <span className="text-[color:var(--neon-cyan)] font-semibold">
-                t+{Math.round(timelineOffset / 1000)}s &nbsp;({activeTimeISO ? activeTimeISO.substring(11, 19) : ""})
+                event {eventCursor + 1}/{eventTimes.length || 1} &nbsp;·&nbsp; t+
+                {Math.round((activeTimestamp - minTime) / 1000)}s &nbsp;(
+                {activeTimeISO ? activeTimeISO.substring(11, 19) : ""})
               </span>
               <span>{new Date(maxTime).toLocaleTimeString()}</span>
             </div>
@@ -740,4 +752,19 @@ export function SpatiotemporalKGPanelClient({ runId }: Props) {
                   </div>
 
                   {Object.keys(selectedEdge.metadata).length > 0 && (
-         
+                    <div className="space-y-1">
+                      <span className="text-[9px] uppercase tracking-wider text-muted-foreground">Metadata</span>
+                      <pre className="rounded border border-white/5 bg-black/40 p-2 font-mono text-[9px] text-foreground/90 overflow-x-auto">
+                        {JSON.stringify(selectedEdge.metadata, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </aside>
+        </div>
+      )}
+    </section>
+  );
+}
