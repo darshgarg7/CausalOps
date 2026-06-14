@@ -41,7 +41,7 @@ type Node = {
     tier?: string;
     domain?: string;
     zone?: string;
-    [key: string]: any;
+    [key: string]: unknown;
   };
   created_at: string;
   x?: number;
@@ -53,9 +53,9 @@ type Edge = {
   target: string;
   relationship: string;
   observed_at: string;
-  location: Record<string, any>;
+  location: Record<string, unknown>;
   confidence: number;
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown>;
 };
 
 export function SpatiotemporalKGPanelClient({ runId }: Props) {
@@ -90,7 +90,7 @@ export function SpatiotemporalKGPanelClient({ runId }: Props) {
       "user",
       "finding",
       "decision",
-    ])
+    ]),
   );
   const [selectedZone, setSelectedZone] = useState<string>("all");
 
@@ -103,7 +103,10 @@ export function SpatiotemporalKGPanelClient({ runId }: Props) {
     try {
       setLoading(true);
       setError(null);
-      const graph = await fetch5DGraph(runId);
+      const graph = (await fetch5DGraph(runId)) as unknown as {
+        nodes: Node[];
+        edges: Edge[];
+      };
       setData(graph);
 
       // Compute Timeline bounds
@@ -229,8 +232,10 @@ export function SpatiotemporalKGPanelClient({ runId }: Props) {
       if (edge.confidence < minConfidence) return false;
 
       // Both source and target must be visible nodes
-      const sourceId = typeof edge.source === "object" ? (edge.source as any).id : edge.source;
-      const targetId = typeof edge.target === "object" ? (edge.target as any).id : edge.target;
+      const sourceId =
+        typeof edge.source === "object" ? (edge.source as { id: string }).id : edge.source;
+      const targetId =
+        typeof edge.target === "object" ? (edge.target as { id: string }).id : edge.target;
 
       return nodeIds.has(sourceId) && nodeIds.has(targetId);
     });
@@ -276,58 +281,55 @@ export function SpatiotemporalKGPanelClient({ runId }: Props) {
     }
   };
 
-  const drawZoneClusterBoxes = useCallback(
-    (nodes: Node[], ctx: CanvasRenderingContext2D) => {
-      // Group nodes by zone/subnet to draw bounds
-      const groups: Record<string, Node[]> = {};
-      nodes.forEach((n) => {
-        const z = n.location?.subnet || n.location?.zone || "unknown";
-        if (n.x !== undefined && n.y !== undefined) {
-          groups[z] = groups[z] || [];
-          groups[z].push(n);
-        }
+  const drawZoneClusterBoxes = useCallback((nodes: Node[], ctx: CanvasRenderingContext2D) => {
+    // Group nodes by zone/subnet to draw bounds
+    const groups: Record<string, Node[]> = {};
+    nodes.forEach((n) => {
+      const z = n.location?.subnet || n.location?.zone || "unknown";
+      if (n.x !== undefined && n.y !== undefined) {
+        groups[z] = groups[z] || [];
+        groups[z].push(n);
+      }
+    });
+
+    ctx.save();
+    Object.entries(groups).forEach(([zone, memberNodes]) => {
+      if (memberNodes.length < 2) return;
+
+      // Calculate bounding box
+      let minX = Infinity,
+        minY = Infinity,
+        maxX = -Infinity,
+        maxY = -Infinity;
+      memberNodes.forEach((n) => {
+        minX = Math.min(minX, n.x!);
+        minY = Math.min(minY, n.y!);
+        maxX = Math.max(maxX, n.x!);
+        maxY = Math.max(maxY, n.y!);
       });
 
-      ctx.save();
-      Object.entries(groups).forEach(([zone, memberNodes]) => {
-        if (memberNodes.length < 2) return;
+      // Add padding
+      const pad = 25;
+      minX -= pad;
+      minY -= pad;
+      maxX += pad;
+      maxY += pad;
+      const w = maxX - minX;
+      const h = maxY - minY;
 
-        // Calculate bounding box
-        let minX = Infinity,
-          minY = Infinity,
-          maxX = -Infinity,
-          maxY = -Infinity;
-        memberNodes.forEach((n) => {
-          minX = Math.min(minX, n.x!);
-          minY = Math.min(minY, n.y!);
-          maxX = Math.max(maxX, n.x!);
-          maxY = Math.max(maxY, n.y!);
-        });
+      // Draw light zone container outline
+      ctx.strokeStyle = "rgba(168, 145, 255, 0.12)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeRect(minX, minY, w, h);
 
-        // Add padding
-        const pad = 25;
-        minX -= pad;
-        minY -= pad;
-        maxX += pad;
-        maxY += pad;
-        const w = maxX - minX;
-        const h = maxY - minY;
-
-        // Draw light zone container outline
-        ctx.strokeStyle = "rgba(168, 145, 255, 0.12)";
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 4]);
-        ctx.strokeRect(minX, minY, w, h);
-
-        // Zone label
-        ctx.fillStyle = "rgba(168, 145, 255, 0.35)";
-        ctx.font = "8px monospace";
-        ctx.fillText(zone.toUpperCase(), minX + 5, minY - 5);
-      });
-      ctx.restore();
-    },
-    []
-  );
+      // Zone label
+      ctx.fillStyle = "rgba(168, 145, 255, 0.35)";
+      ctx.font = "8px monospace";
+      ctx.fillText(zone.toUpperCase(), minX + 5, minY - 5);
+    });
+    ctx.restore();
+  }, []);
 
   return (
     <section className="glass overflow-hidden rounded-2xl">
@@ -412,35 +414,37 @@ export function SpatiotemporalKGPanelClient({ runId }: Props) {
               <Filter className="h-3.5 w-3.5" />
               Types:
             </span>
-            {([
-              "agent",
-              "asset",
-              "threat",
-              "artifact",
-              "causal_variable",
-              "user",
-              "finding",
-              "decision",
-            ] as const).map(
-              (type) => (
-                <button
-                  key={type}
-                  onClick={() => toggleType(type)}
-                  className={cn(
-                    "rounded-md border px-2 py-1 text-[10px] font-mono capitalize transition-all",
-                    selectedTypes.has(type)
-                      ? "border-opacity-50 text-foreground bg-white/5"
-                      : "opacity-40 border-white/5 hover:opacity-75"
-                  )}
-                  style={{
-                    borderColor: selectedTypes.has(type) ? getGlowColor(type) : undefined,
-                    boxShadow: selectedTypes.has(type) ? `0 0 4px ${getGlowColor(type)}40` : undefined,
-                  }}
-                >
-                  {type.replace("_", " ")}
-                </button>
-              )
-            )}
+            {(
+              [
+                "agent",
+                "asset",
+                "threat",
+                "artifact",
+                "causal_variable",
+                "user",
+                "finding",
+                "decision",
+              ] as const
+            ).map((type) => (
+              <button
+                key={type}
+                onClick={() => toggleType(type)}
+                className={cn(
+                  "rounded-md border px-2 py-1 text-[10px] font-mono capitalize transition-all",
+                  selectedTypes.has(type)
+                    ? "border-opacity-50 text-foreground bg-white/5"
+                    : "opacity-40 border-white/5 hover:opacity-75",
+                )}
+                style={{
+                  borderColor: selectedTypes.has(type) ? getGlowColor(type) : undefined,
+                  boxShadow: selectedTypes.has(type)
+                    ? `0 0 4px ${getGlowColor(type)}40`
+                    : undefined,
+                }}
+              >
+                {type.replace("_", " ")}
+              </button>
+            ))}
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
@@ -479,7 +483,9 @@ export function SpatiotemporalKGPanelClient({ runId }: Props) {
       {loading ? (
         <div className="flex h-96 flex-col items-center justify-center gap-3 text-muted-foreground">
           <Activity className="h-8 w-8 animate-spin text-[color:var(--neon-cyan)]" />
-          <p className="text-sm font-mono uppercase tracking-wider">Compiling Spatiotemporal Graph...</p>
+          <p className="text-sm font-mono uppercase tracking-wider">
+            Compiling Spatiotemporal Graph...
+          </p>
         </div>
       ) : error ? (
         <div className="flex h-96 flex-col items-center justify-center gap-3 text-rose-400">
@@ -506,29 +512,41 @@ export function SpatiotemporalKGPanelClient({ runId }: Props) {
               linkDirectionalArrowLength={4}
               linkDirectionalArrowRelPos={0.92}
               linkWidth={(l) => {
-                const sId = typeof l.source === "object" ? (l.source as any).id : l.source;
-                const tId = typeof l.target === "object" ? (l.target as any).id : l.target;
-                const isSelected = selectedEdge && selectedEdge.source === sId && selectedEdge.target === tId;
+                const sId =
+                  typeof l.source === "object" ? (l.source as { id: string }).id : l.source;
+                const tId =
+                  typeof l.target === "object" ? (l.target as { id: string }).id : l.target;
+                const isSelected =
+                  selectedEdge && selectedEdge.source === sId && selectedEdge.target === tId;
                 return isSelected ? 3 : 1;
               }}
               linkColor={(l) => {
-                const sId = typeof l.source === "object" ? (l.source as any).id : l.source;
-                const tId = typeof l.target === "object" ? (l.target as any).id : l.target;
-                const isSelected = selectedEdge && selectedEdge.source === sId && selectedEdge.target === tId;
+                const sId =
+                  typeof l.source === "object" ? (l.source as { id: string }).id : l.source;
+                const tId =
+                  typeof l.target === "object" ? (l.target as { id: string }).id : l.target;
+                const isSelected =
+                  selectedEdge && selectedEdge.source === sId && selectedEdge.target === tId;
                 if (isSelected) return "rgba(0, 240, 255, 0.9)";
-                
+
                 // Color edges based on target node glow
                 const targetNode = data?.nodes.find((n) => n.id === tId);
-                return targetNode ? `${getGlowColor(targetNode.node_type)}60` : "rgba(255, 255, 255, 0.25)";
+                return targetNode
+                  ? `${getGlowColor(targetNode.node_type)}60`
+                  : "rgba(255, 255, 255, 0.25)";
               }}
               linkDirectionalParticles={(l) => {
-                const sId = typeof l.source === "object" ? (l.source as any).id : l.source;
-                const tId = typeof l.target === "object" ? (l.target as any).id : l.target;
-                const isSelected = selectedEdge && selectedEdge.source === sId && selectedEdge.target === tId;
+                const sId =
+                  typeof l.source === "object" ? (l.source as { id: string }).id : l.source;
+                const tId =
+                  typeof l.target === "object" ? (l.target as { id: string }).id : l.target;
+                const isSelected =
+                  selectedEdge && selectedEdge.source === sId && selectedEdge.target === tId;
                 return isSelected ? 4 : 1;
               }}
               linkDirectionalParticleColor={(l) => {
-                const tId = typeof l.target === "object" ? (l.target as any).id : l.target;
+                const tId =
+                  typeof l.target === "object" ? (l.target as { id: string }).id : l.target;
                 const targetNode = data?.nodes.find((n) => n.id === tId);
                 return targetNode ? getGlowColor(targetNode.node_type) : "#00f0ff";
               }}
@@ -542,7 +560,7 @@ export function SpatiotemporalKGPanelClient({ runId }: Props) {
                 const r = isSelected ? 8 : 5;
 
                 ctx.save();
-                
+
                 // Outer glow shadow
                 ctx.beginPath();
                 ctx.arc(n.x, n.y, r + 4, 0, 2 * Math.PI);
@@ -583,13 +601,13 @@ export function SpatiotemporalKGPanelClient({ runId }: Props) {
                   ctx.font = `${fontSize}px Inter, system-ui, sans-serif`;
                   ctx.textAlign = "center";
                   ctx.textBaseline = "top";
-                  
+
                   // Label shadow backplate
                   const text = n.label || n.id;
                   ctx.fillStyle = "rgba(10, 10, 12, 0.75)";
                   const tw = ctx.measureText(text).width;
-                  ctx.fillRect(n.x - tw/2 - 2, n.y + r + 3, tw + 4, fontSize + 2);
-                  
+                  ctx.fillRect(n.x - tw / 2 - 2, n.y + r + 3, tw + 4, fontSize + 2);
+
                   ctx.fillStyle = isSelected ? "#ffffff" : "rgba(226, 232, 240, 0.9)";
                   ctx.fillText(text, n.x, n.y + r + 4);
                 }
@@ -604,8 +622,10 @@ export function SpatiotemporalKGPanelClient({ runId }: Props) {
                 setHoveredNodeId(n ? (n as Node).id : null);
               }}
               onLinkClick={(l) => {
-                const sId = typeof l.source === "object" ? (l.source as any).id : l.source;
-                const tId = typeof l.target === "object" ? (l.target as any).id : l.target;
+                const sId =
+                  typeof l.source === "object" ? (l.source as { id: string }).id : l.source;
+                const tId =
+                  typeof l.target === "object" ? (l.target as { id: string }).id : l.target;
                 setSelectedEdge({
                   source: sId,
                   target: tId,
@@ -654,15 +674,23 @@ export function SpatiotemporalKGPanelClient({ runId }: Props) {
                   >
                     {selectedNode.node_type.replace("_", " ")}
                   </span>
-                  <h3 className="mt-1 text-sm font-semibold text-foreground">{selectedNode.label}</h3>
-                  <code className="text-[10px] text-muted-foreground select-all break-all">{selectedNode.id}</code>
+                  <h3 className="mt-1 text-sm font-semibold text-foreground">
+                    {selectedNode.label}
+                  </h3>
+                  <code className="text-[10px] text-muted-foreground select-all break-all">
+                    {selectedNode.id}
+                  </code>
                 </div>
 
                 <div className="space-y-3.5 text-xs">
                   {selectedNode.description && (
                     <div className="space-y-1">
-                      <span className="text-[9px] uppercase tracking-wider text-muted-foreground">Description</span>
-                      <p className="text-foreground/90 bg-white/5 p-2 rounded border border-white/5">{selectedNode.description}</p>
+                      <span className="text-[9px] uppercase tracking-wider text-muted-foreground">
+                        Description
+                      </span>
+                      <p className="text-foreground/90 bg-white/5 p-2 rounded border border-white/5">
+                        {selectedNode.description}
+                      </p>
                     </div>
                   )}
 
@@ -692,9 +720,13 @@ export function SpatiotemporalKGPanelClient({ runId }: Props) {
                     <div className="rounded border border-white/5 bg-black/20 p-2 font-mono text-[10px]">
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Created:</span>
-                        <span className="text-foreground/90">{new Date(selectedNode.created_at).toLocaleTimeString()}</span>
+                        <span className="text-foreground/90">
+                          {new Date(selectedNode.created_at).toLocaleTimeString()}
+                        </span>
                       </div>
-                      <div className="text-muted-foreground text-[8px] mt-1 break-all">{selectedNode.created_at}</div>
+                      <div className="text-muted-foreground text-[8px] mt-1 break-all">
+                        {selectedNode.created_at}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -705,7 +737,9 @@ export function SpatiotemporalKGPanelClient({ runId }: Props) {
                   <span className="inline-block rounded px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider font-semibold bg-white/10 text-foreground">
                     Predicate / Edge
                   </span>
-                  <h3 className="mt-1 text-sm font-semibold text-[color:var(--neon-cyan)]">{selectedEdge.relationship}</h3>
+                  <h3 className="mt-1 text-sm font-semibold text-[color:var(--neon-cyan)]">
+                    {selectedEdge.relationship}
+                  </h3>
                   <div className="flex flex-wrap items-center gap-1 font-mono text-[9px] text-muted-foreground mt-1 select-all break-all">
                     <span>{selectedEdge.source.split(".").pop()}</span>
                     <span>→</span>
@@ -715,8 +749,12 @@ export function SpatiotemporalKGPanelClient({ runId }: Props) {
 
                 <div className="space-y-3.5 text-xs">
                   <div className="flex justify-between items-center py-1.5 border-b border-white/5">
-                    <span className="text-[9px] uppercase tracking-wider text-muted-foreground">Confidence</span>
-                    <span className="font-mono font-semibold text-foreground/90">{Math.round(selectedEdge.confidence * 100)}%</span>
+                    <span className="text-[9px] uppercase tracking-wider text-muted-foreground">
+                      Confidence
+                    </span>
+                    <span className="font-mono font-semibold text-foreground/90">
+                      {Math.round(selectedEdge.confidence * 100)}%
+                    </span>
                   </div>
 
                   <div className="space-y-1">
@@ -745,15 +783,21 @@ export function SpatiotemporalKGPanelClient({ runId }: Props) {
                     <div className="rounded border border-white/5 bg-black/20 p-2 font-mono text-[10px]">
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Observed:</span>
-                        <span className="text-foreground/90">{new Date(selectedEdge.observed_at).toLocaleTimeString()}</span>
+                        <span className="text-foreground/90">
+                          {new Date(selectedEdge.observed_at).toLocaleTimeString()}
+                        </span>
                       </div>
-                      <div className="text-muted-foreground text-[8px] mt-1 break-all">{selectedEdge.observed_at}</div>
+                      <div className="text-muted-foreground text-[8px] mt-1 break-all">
+                        {selectedEdge.observed_at}
+                      </div>
                     </div>
                   </div>
 
                   {Object.keys(selectedEdge.metadata).length > 0 && (
                     <div className="space-y-1">
-                      <span className="text-[9px] uppercase tracking-wider text-muted-foreground">Metadata</span>
+                      <span className="text-[9px] uppercase tracking-wider text-muted-foreground">
+                        Metadata
+                      </span>
                       <pre className="rounded border border-white/5 bg-black/40 p-2 font-mono text-[9px] text-foreground/90 overflow-x-auto">
                         {JSON.stringify(selectedEdge.metadata, null, 2)}
                       </pre>

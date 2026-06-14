@@ -139,5 +139,5 @@ def test_execute_run_with_mocked_nodes(store: RunStore, monkeypatch) -> None:
 
     persisted = store.get_run("run-coord-1")
     assert persisted.status == "completed"
-    assert persisted.phase == "estimator"
+    assert persisted.phase == "reasoning"
     assert persisted.children_barrier_met() is True
