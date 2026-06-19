@@ -68,6 +68,7 @@ async def _dispatch_parent(
             "correlation_id": envelope.correlation_id,
             "persona": str(payload["persona"]),
             "focus_objective": str(payload["focus_objective"]),
+            "policy": payload.get("policy"),
         }
         update = await asyncio.to_thread(parent_agent_node, parent_state)
         configs = list(update.get("child_configs", []))
@@ -77,9 +78,7 @@ async def _dispatch_parent(
                 envelope.run_id, idempotency_key, record
             )
         run_store.mark_parent_complete(record)
-        _publish_task_completed(
-            envelope, payload, {"child_config_count": len(configs)}
-        )
+        _publish_task_completed(envelope, payload, {"child_config_count": len(configs)})
     except Exception:
         if idempotency_key:
             run_store.release_idempotency_claim(envelope.run_id, idempotency_key)
@@ -113,6 +112,7 @@ async def _dispatch_child(
             "parent_persona": str(payload["parent_persona"]),
             "persona": str(payload["persona"]),
             "focus_objective": str(payload["focus_objective"]),
+            "policy": payload.get("policy"),
         }
         update = await asyncio.to_thread(child_agent_node, child_state)
         memos = list(update.get("memos", []))

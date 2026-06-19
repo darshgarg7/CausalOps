@@ -44,6 +44,8 @@ export interface RunResponse {
   causal_estimate_report?: unknown;
   causal_dataset_profile?: unknown;
   agent_tier_metrics?: unknown;
+  agent_evolution_report?: unknown;
+  policy_optimization_report?: unknown;
 }
 
 export interface RunEnqueueResponse {

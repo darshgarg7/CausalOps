@@ -9,30 +9,23 @@ the old "LLM confirms its own synthetic story" failure mode.
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
 
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import AzureChatOpenAI
 
+from bus.events import ArtifactType
+from bus.helpers import bind_from_state
+from bus.publish import publish_artifact, publish_telemetry
 from causal_discovery import apply_discovery, discover_and_validate, estimation_edges
 from dataset_compiler import clean_variable, compile_evidence_dataset
 from demo_fixtures import demo_causal_payload, is_demo_evidence
 from estimators import estimate_causal_effect
-from bus.events import ArtifactType
-from bus.helpers import bind_from_state
-from bus.publish import publish_artifact, publish_telemetry
+from llm import get_llm
 from schema import CausalPayload, GraphState
 
 logger = logging.getLogger(__name__)
 
-llm = AzureChatOpenAI(
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-    azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o"),
-    api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview"),
-    temperature=0.0,
-)
+llm = get_llm(temperature=0.0)
 
 synth_prompt = ChatPromptTemplate.from_messages(
     [
@@ -81,10 +74,14 @@ def causal_synthesis_node(state: GraphState):
         memos_text = "\n\n".join([_format_memo(memo) for memo in memos])
         evaluator_text = str(ranked[-1] if ranked else {})
 
-        payload = synth_chain.invoke({
-            "memos_text": memos_text,
-            "evaluator_text": evaluator_text,
-        })
+        payload = synth_chain.invoke(
+            {
+                "memos_text": memos_text,
+                "evaluator_text": evaluator_text,
+            }
+        )
+        if isinstance(payload, dict):
+            payload = CausalPayload(**payload)
         payload_dict = payload.model_dump()
         payload_dict["graph"] = _sanitize_graph(payload_dict.get("graph", {}))
 
@@ -155,7 +152,8 @@ def dowhy_engine_node(state: GraphState):
             0,
             "DEMO_FIXTURE: No caller evidence was supplied. ATE is estimated from "
             "the bundled patch-vs-lateral-movement SIEM fixture, not from your "
-            "scenario telemetry. Upload normalized evidence for a scenario-specific estimate.",
+            "scenario telemetry. Upload normalized evidence for a "
+            "scenario-specific estimate.",
         )
     attempts = int(state.get("causal_refutation_attempts", 0)) + 1
 
@@ -190,7 +188,11 @@ def dowhy_engine_node(state: GraphState):
     # Re-publish the causal payload with the validated DAG so the streaming 5D
     # graph consumer updates edge statuses (refuted edges get downgraded, the
     # collider-oriented and discovered structure replaces the bare hypothesis).
-    validated_payload = {**payload, "graph": validated_graph, "discovery": discovery_dict}
+    validated_payload = {
+        **payload,
+        "graph": validated_graph,
+        "discovery": discovery_dict,
+    }
     publish_artifact(
         agent_id="estimator",
         tier="estimator",
@@ -219,15 +221,18 @@ def dowhy_engine_node(state: GraphState):
 def _format_memo(memo: Any) -> str:
     """Serialize a memo into compact context for the causal architect prompt."""
 
-    return "\n".join([
-        f"Perspective: {_memo_value(memo, 'perspective', 'unknown')}",
-        f"Strategy: {_memo_value(memo, 'strategy', '')}",
-        f"Assumptions: {', '.join(_memo_value(memo, 'assumptions', []) or [])}",
-        f"Risks: {', '.join(_memo_value(memo, 'risks', []) or [])}",
-        "Second Order Effects: "
-        f"{', '.join(_memo_value(memo, 'second_order_effects', []) or [])}",
-        f"Evidence Needs: {', '.join(_memo_value(memo, 'evidence_needs', []) or [])}",
-    ])
+    return "\n".join(
+        [
+            f"Perspective: {_memo_value(memo, 'perspective', 'unknown')}",
+            f"Strategy: {_memo_value(memo, 'strategy', '')}",
+            f"Assumptions: {', '.join(_memo_value(memo, 'assumptions', []) or [])}",
+            f"Risks: {', '.join(_memo_value(memo, 'risks', []) or [])}",
+            "Second Order Effects: "
+            f"{', '.join(_memo_value(memo, 'second_order_effects', []) or [])}",
+            "Evidence Needs: "
+            f"{', '.join(_memo_value(memo, 'evidence_needs', []) or [])}",
+        ]
+    )
 
 
 def _memo_value(memo: Any, field: str, default: Any) -> Any:
@@ -267,13 +272,16 @@ def _sanitize_graph(graph_def: dict[str, Any]) -> dict[str, Any]:
         edge.setdefault("required_evidence", [])
         edge.setdefault("falsification_tests", [])
 
-    _ensure_nodes(graph_def, [
-        graph_def["treatment_variable"],
-        graph_def["outcome_variable"],
-        *graph_def["candidate_confounders"],
-        *[edge["source"] for edge in graph_def["edges"] if edge.get("source")],
-        *[edge["target"] for edge in graph_def["edges"] if edge.get("target")],
-    ])
+    _ensure_nodes(
+        graph_def,
+        [
+            graph_def["treatment_variable"],
+            graph_def["outcome_variable"],
+            *graph_def["candidate_confounders"],
+            *[edge["source"] for edge in graph_def["edges"] if edge.get("source")],
+            *[edge["target"] for edge in graph_def["edges"] if edge.get("target")],
+        ],
+    )
     return graph_def
 
 

@@ -5,13 +5,14 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from paths import data_dir
 from schema import AgentConfig, ChildConfig, DecisionMemo, GraphState
 
-DEFAULT_DB_PATH = Path("../data/runs.db")
+DEFAULT_DB_PATH = data_dir() / "runs.db"
 
 _DEFAULT_STORE: RunStore | None = None
 
@@ -56,6 +57,8 @@ class RunRecord:
     causal_dataset_profile: dict[str, Any] | None = None
     causal_estimate_report: dict[str, Any] | None = None
     reasoning_report: dict[str, Any] | None = None
+    agent_evolution_report: dict[str, Any] | None = None
+    policy_optimization_report: dict[str, Any] | None = None
     expected_parent_count: int = 0
     completed_parent_count: int = 0
     expected_child_count: int = 0
@@ -83,6 +86,8 @@ class RunRecord:
             "causal_dataset_profile": self.causal_dataset_profile,
             "causal_estimate_report": self.causal_estimate_report,
             "reasoning_report": self.reasoning_report,
+            "agent_evolution_report": self.agent_evolution_report,
+            "policy_optimization_report": self.policy_optimization_report,
         }
 
     def apply_node_update(self, update: dict[str, Any]) -> None:
@@ -106,6 +111,8 @@ class RunRecord:
             "causal_dataset_profile",
             "causal_estimate_report",
             "reasoning_report",
+            "agent_evolution_report",
+            "policy_optimization_report",
         ):
             if key in update:
                 setattr(self, key, update[key])
@@ -194,7 +201,9 @@ class RunStore:
         consumer), not runs.db.
         """
 
-        from graph_5d import connect_graph_db, get_5d_graph as fetch_5d
+        from graph_5d import connect_graph_db
+        from graph_5d import get_5d_graph as fetch_5d
+
         conn = connect_graph_db()
         try:
             with conn:
@@ -274,7 +283,7 @@ class RunStore:
     def save(self, record: RunRecord) -> None:
         """Upsert run record."""
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         payload = _record_to_json(record)
         with self._connect() as conn:
             conn.execute(
@@ -345,12 +354,15 @@ class RunStore:
         self.complete_idempotency_claim(record.run_id, key, record)
 
     def try_claim_idempotency(self, run_id: str, key: str) -> bool:
-        """Atomically claim a spawn command; return False if already claimed or completed."""
+        """Atomically claim a spawn command.
+
+        Returns False if the command was already claimed or completed.
+        """
 
         if not key:
             return True
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         with self._connect() as conn:
             existing = conn.execute(
                 """
@@ -363,7 +375,9 @@ class RunStore:
                 return False
             conn.execute(
                 """
-                INSERT INTO idempotency_claims (run_id, idempotency_key, status, claimed_at)
+                INSERT INTO idempotency_claims (
+                    run_id, idempotency_key, status, claimed_at
+                )
                 VALUES (?, ?, 'claimed', ?)
                 """,
                 (run_id, key, now),
@@ -432,6 +446,8 @@ def _record_to_json(record: RunRecord) -> dict[str, Any]:
         "causal_dataset_profile": record.causal_dataset_profile,
         "causal_estimate_report": record.causal_estimate_report,
         "reasoning_report": record.reasoning_report,
+        "agent_evolution_report": record.agent_evolution_report,
+        "policy_optimization_report": record.policy_optimization_report,
         "expected_parent_count": record.expected_parent_count,
         "completed_parent_count": record.completed_parent_count,
         "expected_child_count": record.expected_child_count,
@@ -449,8 +465,12 @@ def _record_from_json(data: dict[str, Any]) -> RunRecord:
         status=data.get("status", "running"),
         error_detail=data.get("error_detail"),
         evidence_records=data.get("evidence_records") or [],
-        parent_configs=[AgentConfig.model_validate(c) for c in data.get("parent_configs", [])],
-        child_configs=[ChildConfig.model_validate(c) for c in data.get("child_configs", [])],
+        parent_configs=[
+            AgentConfig.model_validate(c) for c in data.get("parent_configs", [])
+        ],
+        child_configs=[
+            ChildConfig.model_validate(c) for c in data.get("child_configs", [])
+        ],
         memos=[DecisionMemo.model_validate(m) for m in data.get("memos", [])],
         ranked_strategies=data.get("ranked_strategies") or [],
         final_recommendation=data.get("final_recommendation"),
@@ -462,6 +482,8 @@ def _record_from_json(data: dict[str, Any]) -> RunRecord:
         causal_dataset_profile=data.get("causal_dataset_profile"),
         causal_estimate_report=data.get("causal_estimate_report"),
         reasoning_report=data.get("reasoning_report"),
+        agent_evolution_report=data.get("agent_evolution_report"),
+        policy_optimization_report=data.get("policy_optimization_report"),
         expected_parent_count=int(data.get("expected_parent_count", 0)),
         completed_parent_count=int(data.get("completed_parent_count", 0)),
         expected_child_count=int(data.get("expected_child_count", 0)),

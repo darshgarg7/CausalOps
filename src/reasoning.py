@@ -64,7 +64,9 @@ def build_reasoning_report(
         return report
 
     measured = [
-        a for a in assets.values() if treatment in a["values"] and outcome in a["values"]
+        a
+        for a in assets.values()
+        if treatment in a["values"] and outcome in a["values"]
     ]
     if not measured:
         report["warnings"].append(
@@ -139,7 +141,8 @@ def build_reasoning_report(
     anomalous_assets = {a["asset_id"] for a in anomalies}
     for asset in measured:
         zone = zones.setdefault(
-            asset["zone"], {"zone": asset["zone"], "assets": 0, "outcomes": 0, "anomalies": 0}
+            asset["zone"],
+            {"zone": asset["zone"], "assets": 0, "outcomes": 0, "anomalies": 0},
         )
         zone["assets"] += 1
         zone["outcomes"] += asset["values"][outcome]
@@ -208,7 +211,9 @@ def build_reasoning_report(
         driver_edges: dict[str, dict[str, Any]] = {}
         for anomaly in explained:
             for cause in anomaly["explained_by"]:
-                driver_assets.setdefault(cause["variable"], []).append(anomaly["asset_id"])
+                driver_assets.setdefault(cause["variable"], []).append(
+                    anomaly["asset_id"]
+                )
                 driver_edges[cause["variable"]] = cause
         for var, asset_ids in sorted(driver_assets.items()):
             cause = driver_edges[var]
@@ -234,7 +239,9 @@ def build_reasoning_report(
     report["recommendations"] = recommendations
     report["stats"] = {
         "assets_measured": len(measured),
-        "outcome_rate_by_treatment": {str(k): round(v, 4) for k, v in group_rates.items()},
+        "outcome_rate_by_treatment": {
+            str(k): round(v, 4) for k, v in group_rates.items()
+        },
         "anomaly_count": len(anomalies),
         "unexplained_anomaly_count": len(unexplained),
         "anomaly_threshold": threshold,
@@ -254,7 +261,9 @@ def reasoning_node(state: dict[str, Any]) -> dict[str, Any]:
         agent_id="reasoner",
         tier="reasoning",
         phase="REASONING",
-        message="Deriving anomalies and recommendations from the validated causal model",
+        message=(
+            "Deriving anomalies and recommendations from the validated causal model"
+        ),
         status="running",
     )
 

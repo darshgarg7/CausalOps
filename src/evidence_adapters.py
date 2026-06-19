@@ -9,7 +9,8 @@ tenant credentials in the demo. The normalized output can be passed directly to
 from __future__ import annotations
 
 import json
-from typing import Any, Iterable, Iterator
+from collections.abc import Iterable, Iterator
+from typing import Any
 
 from dataset_compiler import clean_variable
 from schema import EvidenceRecord
@@ -40,7 +41,9 @@ def normalize_sentinel_records(
             cve_id=_first(record, CVE_ID_KEYS),
             severity=_severity_to_float(_first(record, ("Severity", "AlertSeverity"))),
             raw_text=_safe_json(record),
-            raw_ref=str(_first(record, ("SystemAlertId", "EventID", "_ItemId")) or index),
+            raw_ref=str(
+                _first(record, ("SystemAlertId", "EventID", "_ItemId")) or index
+            ),
             extracted_fields=_field_aliases(record),
         ).model_dump()
 
@@ -57,8 +60,7 @@ def normalize_cve_records(
             source_type="cve",
             source_name=source_name,
             observed_at=str(
-                _first(record, ("published", "publishedDate", "lastModified"))
-                or ""
+                _first(record, ("published", "publishedDate", "lastModified")) or ""
             )
             or None,
             event_type="cve_observed",
@@ -145,7 +147,7 @@ def _extract_cve_id(record: dict[str, Any]) -> str | None:
     """Extract a CVE identifier from flat or NVD nested records."""
 
     flat = _first(record, CVE_ID_KEYS)
-    if flat and not isinstance(flat, (dict, list)):
+    if flat and not isinstance(flat, dict | list):
         return str(flat)
 
     nested = record.get("cve")

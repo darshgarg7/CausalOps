@@ -14,10 +14,9 @@ falling back to LLM-generated rows.
 from __future__ import annotations
 
 import operator
-from typing import Annotated, Any, Literal, TypedDict
+from typing import Annotated, Any, Literal, NotRequired, TypedDict
 
 from pydantic import BaseModel, Field
-
 
 # ---------------------------------------------------------------------------
 # Causal graph schemas
@@ -47,8 +46,7 @@ class CausalEdge(BaseModel):
     falsification_tests: list[str] = Field(
         default_factory=list,
         description=(
-            "Observable records or temporal contradictions that would weaken "
-            "this edge"
+            "Observable records or temporal contradictions that would weaken this edge"
         ),
     )
 
@@ -61,9 +59,7 @@ class CausalGraphDef(BaseModel):
     treatment_variable: str = Field(
         description="Node ID representing the action/intervention"
     )
-    outcome_variable: str = Field(
-        description="Node ID representing the final outcome"
-    )
+    outcome_variable: str = Field(description="Node ID representing the final outcome")
     candidate_confounders: list[str] = Field(
         default_factory=list,
         description=(
@@ -183,10 +179,12 @@ class EvidenceRecord(BaseModel):
 class CausalDatasetProfile(BaseModel):
     """Quality profile for the dataframe passed to the estimator."""
 
-    data_mode: Literal["empirical", "insufficient_data", "synthetic_simulation"] = Field(
-        description=(
-            "Whether estimate rows came from evidence, are insufficient, or "
-            "are simulation-only"
+    data_mode: Literal["empirical", "insufficient_data", "synthetic_simulation"] = (
+        Field(
+            description=(
+                "Whether estimate rows came from evidence, are insufficient, or "
+                "are simulation-only"
+            )
         )
     )
     n_rows: int = Field(description="Number of compiled observation rows")
@@ -245,11 +243,28 @@ class CausalEstimateReport(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class AgentPolicy(BaseModel):
+    """Compact policy prior attached to an evolved agent configuration."""
+
+    policy_id: str
+    island_id: str
+    generation: int = 0
+    traits: dict[str, float] = Field(default_factory=dict)
+    mutation_rate: float = 0.08
+    fitness: float = 0.0
+    lineage: list[str] = Field(default_factory=list)
+    objective_hint: str | None = None
+
+
 class AgentConfig(BaseModel):
     """Parent agent configuration."""
 
     persona: str = Field(description="High-level persona")
     focus_objective: str = Field(description="Objective for this parent agent")
+    policy: AgentPolicy | None = Field(
+        default=None,
+        description="Optional evolved policy prior used to steer this agent.",
+    )
 
 
 class ChildConfig(BaseModel):
@@ -258,6 +273,10 @@ class ChildConfig(BaseModel):
     parent_persona: str
     persona: str = Field(description="Granular child persona")
     focus_objective: str = Field(description="Specific sub-problem to solve")
+    policy: AgentPolicy | None = Field(
+        default=None,
+        description="Optional evolved policy prior inherited by this child agent.",
+    )
 
 
 class DecisionMemo(BaseModel):
@@ -301,6 +320,8 @@ class GraphState(TypedDict):
     causal_estimate_report: dict[str, Any] | None
     causal_discovery_report: dict[str, Any] | None
     reasoning_report: dict[str, Any] | None
+    agent_evolution_report: dict[str, Any] | None
+    policy_optimization_report: dict[str, Any] | None
 
 
 class ParentState(TypedDict):
@@ -311,6 +332,7 @@ class ParentState(TypedDict):
     correlation_id: str
     persona: str
     focus_objective: str
+    policy: NotRequired[dict[str, Any] | None]
 
 
 class ChildState(TypedDict):
@@ -322,3 +344,4 @@ class ChildState(TypedDict):
     parent_persona: str
     persona: str
     focus_objective: str
+    policy: NotRequired[dict[str, Any] | None]

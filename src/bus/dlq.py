@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from bus.producer import kafka_enabled, publish_bytes_sync
@@ -35,7 +35,7 @@ def publish_dlq(
         return
 
     payload: dict[str, Any] = {
-        "failed_at": datetime.now(timezone.utc).isoformat(),
+        "failed_at": datetime.now(UTC).isoformat(),
         "original_topic": original_topic,
         "original_key": original_key.decode("utf-8") if original_key else None,
         "error": error,

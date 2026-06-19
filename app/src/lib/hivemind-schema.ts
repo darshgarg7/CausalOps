@@ -47,6 +47,8 @@ export const RunResponseSchema = z.object({
   causal_estimate_report: z.unknown().optional(),
   causal_dataset_profile: z.unknown().optional(),
   agent_tier_metrics: z.unknown().optional(),
+  agent_evolution_report: z.unknown().optional(),
+  policy_optimization_report: z.unknown().optional(),
 });
 
 export interface SchemaIssue {

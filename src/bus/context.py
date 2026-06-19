@@ -29,7 +29,9 @@ _run_context: ContextVar[RunPublishContext | None] = ContextVar(
 )
 
 
-def bind_run_context(run_id: str, correlation_id: str | None = None) -> RunPublishContext:
+def bind_run_context(
+    run_id: str, correlation_id: str | None = None
+) -> RunPublishContext:
     """Bind publish context for the current async task / thread."""
 
     ctx = RunPublishContext(

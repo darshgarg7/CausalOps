@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -23,7 +23,7 @@ from bus.producer import (
     stop_producer,
 )
 from bus.serde import bytes_to_envelope
-from bus.topics import TOPIC_SPAWN, _ALL_TOPICS
+from bus.topics import _ALL_TOPICS, TOPIC_SPAWN
 from coordinator.spawn import build_parent_command
 from coordinator.store import RunStore
 from schema import AgentConfig
@@ -64,9 +64,11 @@ def test_submit_spawn_envelope_dispatches_inline_without_kafka(
     publish = Mock(return_value=True)
 
     async def run() -> None:
-        with patch("worker.dispatch.dispatch_spawn_envelope", dispatch):
-            with patch("worker.submit.publish_envelope_sync", publish):
-                await submit_spawn_envelope(envelope)
+        with (
+            patch("worker.dispatch.dispatch_spawn_envelope", dispatch),
+            patch("worker.submit.publish_envelope_sync", publish),
+        ):
+            await submit_spawn_envelope(envelope)
 
         dispatch.assert_awaited_once_with(envelope)
         publish.assert_not_called()
@@ -92,9 +94,11 @@ def test_submit_spawn_envelope_publishes_when_kafka_enabled(
     publish = Mock()
 
     async def run() -> None:
-        with patch("worker.dispatch.dispatch_spawn_envelope", dispatch):
-            with patch("worker.submit.publish_envelope_sync", publish):
-                await submit_spawn_envelope(envelope)
+        with (
+            patch("worker.dispatch.dispatch_spawn_envelope", dispatch),
+            patch("worker.submit.publish_envelope_sync", publish),
+        ):
+            await submit_spawn_envelope(envelope)
 
         publish.assert_called_once_with(envelope)
         dispatch.assert_not_called()
@@ -120,10 +124,12 @@ def test_submit_spawn_envelope_fails_fast_when_kafka_publish_fails(
     publish = Mock(return_value=False)
 
     async def run() -> None:
-        with patch("worker.dispatch.dispatch_spawn_envelope", dispatch):
-            with patch("worker.submit.publish_envelope_sync", publish):
-                with pytest.raises(RuntimeError, match="work was not enqueued"):
-                    await submit_spawn_envelope(envelope)
+        with (
+            patch("worker.dispatch.dispatch_spawn_envelope", dispatch),
+            patch("worker.submit.publish_envelope_sync", publish),
+            pytest.raises(RuntimeError, match="work was not enqueued"),
+        ):
+            await submit_spawn_envelope(envelope)
 
         publish.assert_called_once_with(envelope)
         dispatch.assert_not_called()
@@ -146,7 +152,9 @@ async def _broker_reachable(bootstrap: str) -> bool:
 
 
 @pytest.fixture
-def kafka_bootstrap(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> str:
+def kafka_bootstrap(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> str:
     if request.node.get_closest_marker("kafka") is None:
         pytest.skip("kafka marker required")
 
@@ -162,7 +170,9 @@ def kafka_bootstrap(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPa
     return bootstrap
 
 
-async def _wait_for_assignment(consumer: AIOKafkaConsumer, timeout: float = 10.0) -> None:
+async def _wait_for_assignment(
+    consumer: AIOKafkaConsumer, timeout: float = 10.0
+) -> None:
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
     while loop.time() < deadline:
@@ -221,7 +231,9 @@ def test_kafka_spawn_envelope_round_trip(kafka_bootstrap: str, tmp_path) -> None
             ]
             store.save(record)
 
-            envelope = build_parent_command(record, record.parent_configs[0], task_id="p1")
+            envelope = build_parent_command(
+                record, record.parent_configs[0], task_id="p1"
+            )
 
             consumer_task = asyncio.create_task(
                 _consume_envelope_for_run(
@@ -257,7 +269,9 @@ def test_kafka_telemetry_stream_filters_by_run_id(kafka_bootstrap: str) -> None:
             collected: list[EventEnvelope] = []
 
             async def collect() -> None:
-                async for envelope in stream_telemetry(target_run, stop_event=stop_event):
+                async for envelope in stream_telemetry(
+                    target_run, stop_event=stop_event
+                ):
                     collected.append(envelope)
                     if len(collected) >= 1:
                         stop_event.set()
@@ -280,7 +294,7 @@ def test_kafka_telemetry_stream_filters_by_run_id(kafka_bootstrap: str) -> None:
                             "status": "running",
                         },
                         sequence=0,
-                        timestamp=datetime.now(timezone.utc),
+                        timestamp=datetime.now(UTC),
                     )
                 )
 
@@ -314,7 +328,9 @@ def test_kafka_submit_spawn_envelope_reaches_spawn_topic(
             ]
             store.save(record)
 
-            envelope = build_parent_command(record, record.parent_configs[0], task_id="p1")
+            envelope = build_parent_command(
+                record, record.parent_configs[0], task_id="p1"
+            )
 
             consumer_task = asyncio.create_task(
                 _consume_envelope_for_run(

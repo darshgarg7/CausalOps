@@ -29,8 +29,9 @@ def store(tmp_path: Path) -> RunStore:
 @pytest.fixture
 def client(store: RunStore):
     pytest.importorskip("fastapi")
-    from api import app
     from fastapi.testclient import TestClient
+
+    from api import app
 
     with TestClient(app) as test_client:
         yield test_client

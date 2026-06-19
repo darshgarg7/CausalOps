@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import asyncio
 
-from dotenv import load_dotenv
 import streamlit as st
+from dotenv import load_dotenv
 from streamlit_agraph import Config, Edge, Node, agraph
 
 from engine import run_hivemind
+from paths import data_dir
 
 load_dotenv()
 
@@ -39,7 +40,9 @@ def main() -> None:
         height=200,
     )
 
-    if st.button("Initialize Causal Execution", type="primary", use_container_width=True):
+    if st.button(
+        "Initialize Causal Execution", type="primary", use_container_width=True
+    ):
         _run_and_render(task_description)
 
 
@@ -64,7 +67,7 @@ def _run_and_render(task_description: str) -> None:
             st.error(f"Error executing graph: {exc}")
             return
 
-    artifact_path = f"data/{artifact['run_id']}.json"
+    artifact_path = data_dir() / f"{artifact['run_id']}.json"
     st.success(f"Execution trace saved locally to `{artifact_path}`")
     st.divider()
 

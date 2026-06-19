@@ -105,4 +105,6 @@ def test_estimator_withholds_when_outcome_has_no_variation(
     assert report.method == "withheld:data_quality_gates"
     assert report.ate is None
     assert report.p_value is None
-    assert any("Outcome variation gate failed" in warning for warning in report.warnings)
+    assert any(
+        "Outcome variation gate failed" in warning for warning in report.warnings
+    )

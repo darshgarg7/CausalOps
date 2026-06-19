@@ -22,12 +22,14 @@ obvious engineering objection: "Where did the data come from?"
 | Layer | What it does | Guardrail |
 | --- | --- | --- |
 | Orchestrator | Splits an incident into 2-3 investigation tracks | Standardized tier scoring |
+| Island evolution | Evolves parent/child policy priors before dispatch | Steady-state replacement, bounded mutation, migration |
 | Parent agents | Spawn focused child investigators | Explicit objectives per branch |
 | Child agents | Produce decision memos | Assumptions, risks, evidence needs |
 | Evaluator | Ranks memos against task priorities | Structured scores and final recommendation |
 | Causal architect | Proposes a DAG and measurement plan | No dataset-row generation |
 | Evidence compiler | Converts SIEM/CVE/report records into numeric rows | Provenance, missingness, balance gates |
 | Estimator | Runs DoWhy, statsmodels, and refuters | ATE withheld when data is weak |
+| Policy RL loop | Learns policy shards from the KG/evaluator/reasoner reward | Model-based Q-values and bidirectional meta-learning |
 
 ---
 
@@ -36,8 +38,10 @@ obvious engineering objection: "Where did the data come from?"
 ```mermaid
 flowchart LR
     A["Incident prompt"] --> B["Grand Orchestrator"]
-    B --> C["Parent Agents"]
-    C --> D["Child Agents"]
+    B --> B1["Parent Island Evolution"]
+    B1 --> C["Parent Agents"]
+    C --> C1["Child Island Evolution"]
+    C1 --> D["Child Agents"]
     D --> E["Evaluator"]
     E --> F["Causal Hypothesis Architect"]
     F --> G["Measurement Plan + DAG"]
@@ -49,9 +53,13 @@ flowchart LR
     K -->|Yes| M["DoWhy identification + estimation"]
     M --> N["Statsmodels p-value + CI"]
     M --> O["Refuters"]
-    N --> P["Run artifact"]
-    O --> P
-    L --> P
+    N --> Q["Reasoning Layer"]
+    O --> Q
+    L --> Q
+    Q --> R["KG-Grounded RL + Meta-Learning"]
+    R --> S["Kafka Policy Artifact"]
+    S --> T["5D Knowledge Graph Update"]
+    T --> P["Run artifact"]
 ```
 
 ---
@@ -126,7 +134,38 @@ Yes. `benchmarking.py` emits deterministic tier metrics for:
 The final artifact includes `agent_tier_metrics.overall_score` and per-tier
 observed signals.
 
-### 7. How does the LLM know which confounders to suggest for the DAG?
+### 7. What does agent evolution optimize?
+
+`evolution.py` runs a deterministic steady-state island algorithm after the
+orchestrator produces parent configs and again after parents produce child
+configs. Each island maintains compact policy genomes with traits such as
+`evidence_weight`, `causal_focus`, `temporal_awareness`, `exploration`,
+`exploitation`, `risk_aversion`, `coordination`, and `resource_budget`.
+
+The algorithm uses tournament selection, crossover, bounded mutation,
+steady-state replacement, and periodic migration. It does not rewrite the
+incident or fake evidence. It attaches an `AgentPolicy` prior to each
+`AgentConfig`/`ChildConfig`, publishes `agent_evolution_report`, and agents
+receive that prior as prompt guidance.
+
+### 8. How does the reinforcement-learning loop work?
+
+`policy_learning.py` starts from the 5D spatiotemporal knowledge graph snapshot,
+then builds a model-based RL report from:
+
+- evaluator scores over child memos
+- causal estimate strength and data gates
+- reasoning-layer anomalies and recommendations
+- KG topology and edge confidence
+
+It computes global rewards, transition weights from KG edges, value-iteration
+Q-values, a greedy policy, and a Stackelberg-style leader/follower response.
+Then bidirectional meta-learning pushes a shared prior down into child policy
+shards and aggregates local deltas back into an updated meta-prior. The result is
+published as `policy_optimization_report`, ingested back into the 5D graph, and
+available in the final run artifact.
+
+### 9. How does the LLM know which confounders to suggest for the DAG?
 
 The Causal Architect performs a Semantic Intersection between the incident prompt and the available telemetry schema. It proposes candidate confounders (e.g., Asset_Criticality) which are then validated by the Evidence Normalizer. If the variable exists in the physical logs, it stays; if it's a hallucination, the Gatekeeper prunes the edge before estimation.
 
@@ -150,17 +189,18 @@ With Docker Compose, Kafka is enabled automatically via Redpanda:
 KAFKA_BOOTSTRAP=localhost:19092
 ```
 
-Topics: `CausalOps.runs`, `CausalOps.spawn`, `CausalOps.artifacts`, `CausalOps.telemetry`, `CausalOps.dlq`.
+Topics: `hivemind.runs`, `hivemind.spawn`, `hivemind.artifacts`, `hivemind.telemetry`, `hivemind.evidence`, `hivemind.dlq`.
 
 Compose runs three backend processes: **api** (coordinator + SSE, no spawn consumer), **worker** (spawn consumer), and **redpanda**. Both api and worker share `./data` for the SQLite run store.
 
 | Env var | Default (compose) | Purpose |
 |---------|-------------------|---------|
-| `CausalOps_ENABLE_SPAWN_WORKER` | `0` on api, `1` on worker | In-process spawn consumer in api when `1` |
-| `CausalOps_SPAWN_MAX_RETRIES` | `2` | Dispatch retries before DLQ |
-| `CausalOps_SPAWN_RETRY_BACKOFF_MS` | `1000` | Delay between spawn retries |
+| `HIVEMIND_ENABLE_SPAWN_WORKER` | `0` on api, `1` on worker | In-process spawn consumer in api when `1` |
+| `HIVEMIND_SPAWN_MAX_RETRIES` | `2` | Dispatch retries before DLQ |
+| `HIVEMIND_SPAWN_RETRY_BACKOFF_MS` | `1000` | Delay between spawn retries |
+| `HIVEMIND_DATA_DIR` | repo-root `data/` | Run artifacts, run store, and 5D graph SQLite files |
 
-For single-process local dev without the worker container, set `CausalOps_ENABLE_SPAWN_WORKER=1` on the api service.
+For single-process local dev without the worker container, set `HIVEMIND_ENABLE_SPAWN_WORKER=1` on the api service.
 
 Live UI progress uses SSE. The frontend generates a `run_id`, opens
 `GET /run/{run_id}/events`, then calls `POST /run` with the same id. If
@@ -293,10 +333,13 @@ curl -X POST http://localhost:8000/normalize/incidents \
 | --- | --- |
 | `api.py` | FastAPI surface: `/run`, `/estimate`, `/demo/estimate`, normalizers |
 | `agents.py` | Orchestrator, parent-agent, and child-agent LangGraph nodes |
+| `evolution.py` | Steady-state island evolution for parent/child policy priors |
 | `evaluator.py` | Adaptive structured evaluator for decision memos |
 | `causal.py` | Causal hypothesis generation and estimator node wiring |
 | `dataset_compiler.py` | Evidence-to-dataframe compiler and statistical gates |
 | `estimators.py` | DoWhy estimation, statsmodels p-values/CIs, refuters |
+| `policy_learning.py` | KG-grounded RL loop, Q-values, Stackelberg response, meta-learning |
+| `graph_5d.py` / `graph_5d_stream.py` | 5D spatiotemporal KG storage and Kafka artifact ingestion |
 | `evidence_adapters.py` | Sentinel/CVE/incident export normalization |
 | `benchmarking.py` | Deterministic tier metrics for the agent pipeline |
 | `schema.py` | Pydantic and LangGraph state contracts |
@@ -309,12 +352,14 @@ curl -X POST http://localhost:8000/normalize/incidents \
 ## Engineering Standards
 
 - Docker-first execution via `docker-compose up --build`
-- Pinned Python dependencies for reproducible builds
+- Installable backend package defined in `pyproject.toml`
+- Runtime Python pins in `requirements.txt`; dev tooling in `requirements-dev.txt`
 - `.dockerignore` files for smaller, safer build contexts
-- PEP8-compatible formatting targets in `pyproject.toml`
+- Ruff linting is configured in `pyproject.toml` and enforced in CI
 - CORS restricted to local demo origins by default
 - ATE/p-value withheld when evidence gates fail
-- Run artifacts persisted under `data/`
+- Evolution and policy-learning reports are published as Kafka artifacts
+- Run artifacts persisted under `HIVEMIND_DATA_DIR` (`data/` by default)
 
 ---
 
@@ -326,6 +371,7 @@ curl -X POST http://localhost:8000/normalize/incidents \
 - Larger benchmark suite with golden incident prompts
 - Streaming execution telemetry from LangGraph to the React UI
 - Backtesting against historical incident retrospectives
+- Persistent cross-run policy memory for seeding future island populations
 
 ---
 
@@ -333,9 +379,9 @@ curl -X POST http://localhost:8000/normalize/incidents \
 
 - **Production-Grade MCP Intelligence Fabric:** Build a distributed MCP client layer capable of dynamically discovering, authenticating, and routing across agentic topics within the swarm. Agents will interface with specialized cyber-oriented MCP servers providing contextual memory, threat intelligence enrichment, tool orchestration, policy enforcement, and reasoning augmentation. The long-term goal is a zero-trust, latency-aware intelligence plane for autonomous multi-agent coordination.
 - **Deep Hierarchical Agent Expansion:** Introduce additional recursive child-agent layers with adaptive spawning policies driven by task complexity, uncertainty, and resource availability. Runtime efficiency will be improved through asynchronous execution pipelines, speculative parallel reasoning, and distributed workload scheduling across heterogeneous compute environments.
-- **Full Distributed Execution** Production-grade bus-native architecture with horizontally scaled worker services (compose/k8s), a coordinator-only API container, and shared run state in Redis or Postgres (SQLite retained for local dev). Harden the bus with idempotency keys, retry policy, and dead-letter topics; version envelopes with Avro and Schema Registry. Add `CausalOps.evidence`, S3/MinIO refs for large artifacts, in-flight run recovery after restarts, and observability (consumer lag, run-phase dashboards, DLQ alerting). Migrate via existing `WorkerExecutor` (in-process → remote) and `RunStore` (SQLite → Redis) interfaces while keeping spawn/artifact shapes and coordinator barrier rules unchanged.
-- **5D Spatiotemporal Knowledge Graph Engine:** Develop a real-time 5D spatiotemporal graph system continuously updated from Kafka event streams. The graph will model entities, relationships, temporal evolution, and contextual state transitions across the swarm. Dynamically generated DAGs and causal inference pipelines will emerge directly from this evolving graph substrate, enabling temporally-aware reasoning, anomaly tracing, and adaptive decision intelligence.
-- **Evolutionary Agent Optimization Framework:** Integrate a steady-state evolutionary algorithm for autonomous optimization of agent spawning strategies, behavioral policies, and orchestration patterns. Agents will inherit successful traits through mutation and crossover mechanisms, allowing the swarm to continuously evolve more efficient reasoning pathways, coordination structures, and task-specialized behaviors over time.
+- **Full Distributed Execution** Production-grade bus-native architecture with horizontally scaled worker services (compose/k8s), a coordinator-only API container, and shared run state in Redis or Postgres (SQLite retained for local dev). Harden the bus with idempotency keys, retry policy, and dead-letter topics; version envelopes with Avro and Schema Registry. Expand `hivemind.evidence`, add S3/MinIO refs for large artifacts, in-flight run recovery after restarts, and observability (consumer lag, run-phase dashboards, DLQ alerting). Migrate via existing `WorkerExecutor` (in-process → remote) and `RunStore` (SQLite → Redis) interfaces while keeping spawn/artifact shapes and coordinator barrier rules unchanged.
+- **Cross-Run Evolution Memory:** Persist the best policy priors across completed runs so future island populations can start from learned historical priors instead of only run-local seeds.
+- **Online RL With Live Kafka Feedback:** Extend the current run-level policy-learning pass into a continuously running controller that updates Q-values as new KG events arrive.
 - **Federated Multi-Swarm Coordination:** Extend the architecture toward federated swarm interoperability, where independent agent clusters can exchange semantic state, negotiate objectives, and collaboratively solve large-scale problems while preserving localized autonomy and fault isolation.
 - **Adaptive Trust, Reputation, and Reliability Layer:** Implement a reputation-driven trust framework inspired by distributed systems and service mesh architectures. Agents, tools, and MCP servers will be continuously evaluated using latency, correctness, consistency, and semantic reliability metrics, enabling dynamic routing, circuit-breaking, and failure containment across the orchestration graph.
 - **Real-Time Causal Reasoning Infrastructure:** Expand the DAG generation pipeline into a streaming causal inference engine capable of constructing and updating probabilistic causal models from live swarm telemetry. This will enable agents to move beyond correlation-based reasoning toward intervention-aware strategic planning and root-cause analysis.

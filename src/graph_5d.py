@@ -12,9 +12,11 @@ import logging
 import os
 import re
 import sqlite3
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, TypedDict
+
+from paths import data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +26,7 @@ logger = logging.getLogger(__name__)
 # end-of-run backfill). Keeping them in separate files preserves the
 # single-writer-per-file invariant SQLite needs to avoid lock contention across
 # containers sharing a bind-mounted volume.
-DEFAULT_GRAPH_DB_PATH = Path("../data/graph_5d.db")
+DEFAULT_GRAPH_DB_PATH = data_dir() / "graph_5d.db"
 
 
 def graph_db_path() -> Path:
@@ -110,7 +112,10 @@ def init_5d_schema(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_st_edges_run ON spatiotemporal_edges (run_id)"
     )
     conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_st_edges_time ON spatiotemporal_edges (run_id, observed_at)"
+        """
+        CREATE INDEX IF NOT EXISTS idx_st_edges_time
+        ON spatiotemporal_edges (run_id, observed_at)
+        """
     )
 
 
@@ -132,7 +137,7 @@ def log_st_node(
     keep the earliest timestamp so timeline replay reveals it at first sighting.
     """
 
-    t = created_at or datetime.now(timezone.utc).isoformat()
+    t = created_at or datetime.now(UTC).isoformat()
     location_json = json.dumps(location or {})
     conn.execute(
         """
@@ -162,29 +167,49 @@ def log_st_edge(
     confidence: float = 1.0,
     edge_metadata: dict[str, Any] | None = None,
 ) -> None:
-    """Append a spatiotemporal edge if not already existing to prevent exact duplicates."""
+    """Append a spatiotemporal edge unless an exact duplicate exists."""
 
-    t = observed_at or datetime.now(timezone.utc).isoformat()
+    t = observed_at or datetime.now(UTC).isoformat()
     location_json = json.dumps(location or {})
     meta_json = json.dumps(edge_metadata or {})
-    
+
     # Check if edge already exists to prevent duplicate rows
     existing = conn.execute(
         """
         SELECT 1 FROM spatiotemporal_edges
-        WHERE run_id = ? AND subject_id = ? AND predicate = ? AND object_id = ? AND observed_at = ?
+        WHERE run_id = ?
+          AND subject_id = ?
+          AND predicate = ?
+          AND object_id = ?
+          AND observed_at = ?
         """,
         (run_id, subject_id, predicate, object_id, t),
     ).fetchone()
-    
+
     if not existing:
         conn.execute(
             """
             INSERT INTO spatiotemporal_edges (
-                run_id, subject_id, predicate, object_id, observed_at, location_json, confidence, edge_metadata_json
+                run_id,
+                subject_id,
+                predicate,
+                object_id,
+                observed_at,
+                location_json,
+                confidence,
+                edge_metadata_json
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (run_id, subject_id, predicate, object_id, t, location_json, confidence, meta_json),
+            (
+                run_id,
+                subject_id,
+                predicate,
+                object_id,
+                t,
+                location_json,
+                confidence,
+                meta_json,
+            ),
         )
 
 
@@ -207,19 +232,28 @@ def get_5d_graph(conn: sqlite3.Connection, run_id: str) -> dict[str, Any]:
             loc = json.loads(r["location_json"])
         except Exception:
             loc = {}
-        nodes.append({
-            "id": r["node_id"],
-            "node_type": r["node_type"],
-            "label": r["label"],
-            "description": r["description"] or "",
-            "location": loc,
-            "created_at": r["created_at"],
-        })
+        nodes.append(
+            {
+                "id": r["node_id"],
+                "node_type": r["node_type"],
+                "label": r["label"],
+                "description": r["description"] or "",
+                "location": loc,
+                "created_at": r["created_at"],
+            }
+        )
 
     # Fetch edges
     edges_rows = conn.execute(
         """
-        SELECT subject_id, predicate, object_id, observed_at, location_json, confidence, edge_metadata_json
+        SELECT
+            subject_id,
+            predicate,
+            object_id,
+            observed_at,
+            location_json,
+            confidence,
+            edge_metadata_json
         FROM spatiotemporal_edges
         WHERE run_id = ?
         ORDER BY observed_at ASC
@@ -237,15 +271,17 @@ def get_5d_graph(conn: sqlite3.Connection, run_id: str) -> dict[str, Any]:
             meta = json.loads(r["edge_metadata_json"])
         except Exception:
             meta = {}
-        edges.append({
-            "source": r["subject_id"],
-            "target": r["object_id"],
-            "relationship": r["predicate"],
-            "observed_at": r["observed_at"],
-            "location": loc,
-            "confidence": float(r["confidence"]),
-            "metadata": meta,
-        })
+        edges.append(
+            {
+                "source": r["subject_id"],
+                "target": r["object_id"],
+                "relationship": r["predicate"],
+                "observed_at": r["observed_at"],
+                "location": loc,
+                "confidence": float(r["confidence"]),
+                "metadata": meta,
+            }
+        )
 
     return {
         "run_id": run_id,
@@ -347,7 +383,9 @@ def ingest_child(
     if not persona:
         return
     c_id = f"agent.child.{_slug(persona)}"
-    p_id = f"agent.parent.{_slug(parent_persona)}" if parent_persona else ORCHESTRATOR_ID
+    p_id = (
+        f"agent.parent.{_slug(parent_persona)}" if parent_persona else ORCHESTRATOR_ID
+    )
     log_st_node(
         conn,
         run_id=run_id,
@@ -555,7 +593,9 @@ def ingest_findings(
         asset_id = str(anomaly.get("asset_id", ""))
         ast_node = f"asset.{asset_id.lower()}"
         find_id = f"finding.anomaly.{asset_id.lower()}"
-        location = dict(asset_locations.get(ast_node) or {"subnet": anomaly.get("zone", "")})
+        location = dict(
+            asset_locations.get(ast_node) or {"subnet": anomaly.get("zone", "")}
+        )
         location["tier"] = "reasoning"
         severity = anomaly.get("severity", "medium")
         log_st_node(
@@ -563,7 +603,8 @@ def ingest_findings(
             run_id=run_id,
             node_id=find_id,
             node_type="finding",
-            label=f"Anomaly: {asset_id}" + (" (unexplained)" if severity == "high" else ""),
+            label=f"Anomaly: {asset_id}"
+            + (" (unexplained)" if severity == "high" else ""),
             description=anomaly.get("detail", ""),
             location=location,
             created_at=observed_at,
@@ -628,6 +669,241 @@ def ingest_findings(
             )
 
 
+def ingest_evolution_report(
+    conn: sqlite3.Connection,
+    run_id: str,
+    report: dict[str, Any],
+    *,
+    observed_at: str | None = None,
+) -> None:
+    """Upsert island-evolution policy priors into the 5D graph."""
+
+    t = observed_at or datetime.now(UTC).isoformat()
+    phases = report.get("phases") if isinstance(report, dict) else None
+    phase_reports = phases or [report]
+    for phase in phase_reports:
+        if not isinstance(phase, dict):
+            continue
+        tier = str(phase.get("tier", "agent"))
+        evo_id = f"optimizer.evolution.{tier}"
+        log_st_node(
+            conn,
+            run_id=run_id,
+            node_id=evo_id,
+            node_type="optimizer",
+            label=f"{tier.title()} Island Evolution",
+            description=(
+                "Steady-state island algorithm selecting agent policy priors "
+                f"over {phase.get('generations', 0)} generations."
+            ),
+            location={"tier": "optimizer", "zone": "policy"},
+            created_at=t,
+        )
+        for island in phase.get("islands", []) or []:
+            island_id = str(island.get("island_id", "island"))
+            island_node = f"optimizer.evolution.{_slug(island_id)}"
+            log_st_node(
+                conn,
+                run_id=run_id,
+                node_id=island_node,
+                node_type="optimizer",
+                label=island_id,
+                description=(
+                    f"Population {island.get('population_size', 0)}; "
+                    f"best fitness {island.get('best_fitness', 0)}."
+                ),
+                location={"tier": "optimizer", "zone": "policy", "island": island_id},
+                created_at=t,
+            )
+            log_st_edge(
+                conn,
+                run_id=run_id,
+                subject_id=evo_id,
+                predicate="maintains_island",
+                object_id=island_node,
+                observed_at=t,
+                location={"tier": "optimizer", "zone": "policy"},
+                confidence=float(island.get("best_fitness", 0.5) or 0.5),
+                edge_metadata={
+                    "mean_fitness": island.get("mean_fitness"),
+                    "population_size": island.get("population_size"),
+                },
+            )
+
+        for selected in phase.get("selected_policies", []) or []:
+            policy = selected.get("policy", {}) or {}
+            policy_id = str(policy.get("policy_id", "policy.unknown"))
+            policy_node = f"policy.evolved.{_slug(policy_id)}"
+            agent_id = str(selected.get("agent", "agent.unknown"))
+            log_st_node(
+                conn,
+                run_id=run_id,
+                node_id=policy_node,
+                node_type="policy",
+                label=f"Policy: {selected.get('persona', policy_id)}",
+                description=(
+                    f"Fitness {policy.get('fitness', 0)}; "
+                    f"traits {json.dumps(policy.get('traits', {}), sort_keys=True)}"
+                ),
+                location={
+                    "tier": "optimizer",
+                    "zone": "policy",
+                    "island": policy.get("island_id"),
+                },
+                created_at=t,
+            )
+            log_st_edge(
+                conn,
+                run_id=run_id,
+                subject_id=evo_id,
+                predicate="selects_policy",
+                object_id=policy_node,
+                observed_at=t,
+                location={"tier": "optimizer", "zone": "policy"},
+                confidence=float(policy.get("fitness", 0.5) or 0.5),
+                edge_metadata={"generation": policy.get("generation")},
+            )
+            log_st_edge(
+                conn,
+                run_id=run_id,
+                subject_id=policy_node,
+                predicate="prior_for",
+                object_id=agent_id,
+                observed_at=t,
+                location={"tier": "optimizer", "zone": "swarm"},
+                confidence=float(policy.get("fitness", 0.5) or 0.5),
+                edge_metadata={"traits": policy.get("traits", {})},
+            )
+
+
+def ingest_policy_optimization(
+    conn: sqlite3.Connection,
+    run_id: str,
+    report: dict[str, Any],
+    *,
+    observed_at: str | None = None,
+) -> None:
+    """Upsert the KG-grounded RL/meta-learning policy update."""
+
+    t = observed_at or datetime.now(UTC).isoformat()
+    meta = (report or {}).get("meta_learning", {}) or {}
+    stackelberg = (report or {}).get("stackelberg", {}) or {}
+    kg_base = (report or {}).get("kg_base", {}) or {}
+    meta_node = "policy.meta_prior"
+    kg_node = f"kg.run.{_slug(run_id)}"
+
+    log_st_node(
+        conn,
+        run_id=run_id,
+        node_id=kg_node,
+        node_type="knowledge_graph",
+        label="Run Knowledge Graph",
+        description=(
+            f"{kg_base.get('node_count', 0)} nodes, "
+            f"{kg_base.get('edge_count', 0)} edges before RL update."
+        ),
+        location={"tier": "knowledge_graph", "zone": "substrate"},
+        created_at=t,
+    )
+    log_st_node(
+        conn,
+        run_id=run_id,
+        node_id=meta_node,
+        node_type="policy",
+        label="Meta-Learned Policy Prior",
+        description=json.dumps(meta.get("updated_prior", {}), sort_keys=True),
+        location={"tier": "optimizer", "zone": "policy"},
+        created_at=t,
+    )
+    log_st_edge(
+        conn,
+        run_id=run_id,
+        subject_id=kg_node,
+        predicate="grounds_rl_state",
+        object_id=meta_node,
+        observed_at=t,
+        location={"tier": "optimizer", "zone": "policy"},
+        confidence=1.0,
+        edge_metadata=report.get("reward_model", {}),
+    )
+
+    for shard in meta.get("child_shards", []) or []:
+        agent_id = str(shard.get("agent_id", "agent.child.unknown"))
+        shard_id = f"policy.shard.{_slug(agent_id)}"
+        log_st_node(
+            conn,
+            run_id=run_id,
+            node_id=shard_id,
+            node_type="policy",
+            label=f"Policy Shard: {agent_id.split('.')[-1]}",
+            description=json.dumps(shard.get("specialized_policy", {}), sort_keys=True),
+            location={"tier": "optimizer", "zone": "policy", "agent": agent_id},
+            created_at=t,
+        )
+        log_st_edge(
+            conn,
+            run_id=run_id,
+            subject_id=meta_node,
+            predicate="shards_prior_to",
+            object_id=shard_id,
+            observed_at=t,
+            location={"tier": "optimizer", "zone": "policy"},
+            confidence=float(shard.get("q_value", 0.5) or 0.5),
+            edge_metadata={"inherited_prior": shard.get("inherited_prior", {})},
+        )
+        log_st_edge(
+            conn,
+            run_id=run_id,
+            subject_id=shard_id,
+            predicate="specializes",
+            object_id=agent_id,
+            observed_at=t,
+            location={"tier": "optimizer", "zone": "swarm"},
+            confidence=float(shard.get("q_value", 0.5) or 0.5),
+            edge_metadata={"local_delta": shard.get("local_delta", {})},
+        )
+        log_st_edge(
+            conn,
+            run_id=run_id,
+            subject_id=shard_id,
+            predicate="updates_meta_prior",
+            object_id=meta_node,
+            observed_at=t,
+            location={"tier": "optimizer", "zone": "policy"},
+            confidence=float(shard.get("q_value", 0.5) or 0.5),
+            edge_metadata={"policy_id": shard.get("policy_id")},
+        )
+
+    leader = stackelberg.get("leader_agent_id")
+    if leader:
+        log_st_edge(
+            conn,
+            run_id=run_id,
+            subject_id=meta_node,
+            predicate="selects_stackelberg_leader",
+            object_id=str(leader),
+            observed_at=t,
+            location={"tier": "optimizer", "zone": "policy"},
+            confidence=float(stackelberg.get("leader_q_value", 0.5) or 0.5),
+            edge_metadata={
+                "leader_action": stackelberg.get("leader_action"),
+                "solution_concept": stackelberg.get("solution_concept"),
+            },
+        )
+
+    log_st_edge(
+        conn,
+        run_id=run_id,
+        subject_id=meta_node,
+        predicate="updates_knowledge_graph",
+        object_id=kg_node,
+        observed_at=t,
+        location={"tier": "optimizer", "zone": "substrate"},
+        confidence=1.0,
+        edge_metadata={"kafka_feedback": report.get("kafka_feedback", {})},
+    )
+
+
 def ingest_evidence_record(
     conn: sqlite3.Connection,
     run_id: str,
@@ -657,7 +933,12 @@ def ingest_evidence_record(
     # Derive the spatial dimension (subnet + ip) from telemetry or asset id.
     subnet, ip = _derive_location(fields, asset_id)
 
-    location_data = {"subnet": subnet, "ip": ip, "source": src_name, "source_type": src_type}
+    location_data = {
+        "subnet": subnet,
+        "ip": ip,
+        "source": src_name,
+        "source_type": src_type,
+    }
 
     if not asset_id:
         return
@@ -823,7 +1104,7 @@ def reconstruct_5d_graph(conn: sqlite3.Connection, run_id: str, record: Any) -> 
 
     logger.info("Reconstructing 5D Spatiotemporal KG for run %s", run_id)
 
-    base_time = datetime.now(timezone.utc)
+    base_time = datetime.now(UTC)
     t_orchestrator = base_time.isoformat()
     t_parents = (base_time + timedelta(seconds=2)).isoformat()
     t_children = (base_time + timedelta(seconds=4)).isoformat()
@@ -838,6 +1119,11 @@ def reconstruct_5d_graph(conn: sqlite3.Connection, run_id: str, record: Any) -> 
     child_configs = getattr(record, "child_configs", []) or []
     for child in child_configs:
         ingest_child(conn, run_id, child, observed_at=t_parents)
+
+    evolution_report = getattr(record, "agent_evolution_report", None)
+    if evolution_report:
+        t_evolution = (base_time + timedelta(seconds=5)).isoformat()
+        ingest_evolution_report(conn, run_id, evolution_report, observed_at=t_evolution)
 
     for memo in getattr(record, "memos", []) or []:
         ingest_memo(conn, run_id, memo, child_configs, observed_at=t_children)
@@ -854,3 +1140,8 @@ def reconstruct_5d_graph(conn: sqlite3.Connection, run_id: str, record: Any) -> 
     if reasoning_report:
         t_reasoning = (base_time + timedelta(seconds=12)).isoformat()
         ingest_findings(conn, run_id, reasoning_report, observed_at=t_reasoning)
+
+    policy_report = getattr(record, "policy_optimization_report", None)
+    if policy_report:
+        t_policy = (base_time + timedelta(seconds=14)).isoformat()
+        ingest_policy_optimization(conn, run_id, policy_report, observed_at=t_policy)

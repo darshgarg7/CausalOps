@@ -23,14 +23,12 @@ from pydantic import BaseModel, Field
 
 from bus.consumer import stream_telemetry
 from bus.producer import set_event_loop, start_producer, stop_producer
-from worker.consumer import run_spawn_consumer
-
+from coordinator.store import get_run_store
 from dataset_compiler import compile_evidence_dataset
 from demo_fixtures import (
     patch_lateral_movement_evidence,
     patch_lateral_movement_graph,
 )
-from coordinator.store import get_run_store
 from engine import load_run_artifact, new_run_id, run_hivemind
 from estimators import estimate_causal_effect
 from evidence_adapters import (
@@ -38,6 +36,7 @@ from evidence_adapters import (
     normalize_incident_reports,
     normalize_sentinel_records,
 )
+from worker.consumer import run_spawn_consumer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -61,9 +60,7 @@ async def lifespan(_app: FastAPI):
     stop_event = asyncio.Event()
     worker_task = None
     if _spawn_worker_enabled():
-        worker_task = asyncio.create_task(
-            run_spawn_consumer(stop_event=stop_event)
-        )
+        worker_task = asyncio.create_task(run_spawn_consumer(stop_event=stop_event))
         logger.info("In-process spawn worker enabled")
     else:
         logger.info(
@@ -262,14 +259,20 @@ class STEdgeIngest(BaseModel):
     predicate: str = Field(description="Action link or relationship")
     object: str = Field(description="Object node ID")
     observed_at: str | None = Field(default=None, description="ISO timestamp")
-    location: dict[str, Any] | None = Field(default=None, description="Spatial coordinates or zones")
+    location: dict[str, Any] | None = Field(
+        default=None, description="Spatial coordinates or zones"
+    )
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
-    metadata: dict[str, Any] | None = Field(default=None, description="Additional metadata")
+    metadata: dict[str, Any] | None = Field(
+        default=None, description="Additional metadata"
+    )
 
 
 class STNodeIngest(BaseModel):
     id: str = Field(description="Node ID")
-    node_type: str = Field(description="agent | asset | threat | artifact | causal_variable")
+    node_type: str = Field(
+        description="agent | asset | threat | artifact | causal_variable"
+    )
     label: str = Field(description="Display label")
     description: str | None = Field(default=None)
     location: dict[str, Any] | None = Field(default=None)
@@ -325,7 +328,8 @@ async def ingest_run_5d_graph(run_id: str, request: Ingest5DRequest):
         conn = store._connect()
         try:
             with conn:
-                from graph_5d import log_st_node, log_st_edge
+                from graph_5d import log_st_edge, log_st_node
+
                 for node in request.nodes:
                     log_st_node(
                         conn,
@@ -350,10 +354,14 @@ async def ingest_run_5d_graph(run_id: str, request: Ingest5DRequest):
                     )
         finally:
             conn.close()
-        return {"status": "ok", "nodes_ingested": len(request.nodes), "edges_ingested": len(request.edges)}
+        return {
+            "status": "ok",
+            "nodes_ingested": len(request.nodes),
+            "edges_ingested": len(request.edges),
+        }
     except Exception as exc:
         logger.exception("Failed manual ingestion of 5D graph elements: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.post("/run", status_code=202)
@@ -444,10 +452,12 @@ def normalize_sentinel_export(request: NormalizeRequest):
     """Normalize Microsoft Sentinel or SIEM-like export rows."""
 
     return {
-        "evidence_records": list(normalize_sentinel_records(
-            request.records,
-            source_name=request.source_name or "microsoft-sentinel-export",
-        ))
+        "evidence_records": list(
+            normalize_sentinel_records(
+                request.records,
+                source_name=request.source_name or "microsoft-sentinel-export",
+            )
+        )
     }
 
 
@@ -456,10 +466,12 @@ def normalize_cve_export(request: NormalizeRequest):
     """Normalize NVD/CVE feed rows into evidence records."""
 
     return {
-        "evidence_records": list(normalize_cve_records(
-            request.records,
-            source_name=request.source_name or "cve-feed-export",
-        ))
+        "evidence_records": list(
+            normalize_cve_records(
+                request.records,
+                source_name=request.source_name or "cve-feed-export",
+            )
+        )
     }
 
 
@@ -468,10 +480,12 @@ def normalize_incident_export(request: NormalizeRequest):
     """Normalize incident-report export rows into evidence records."""
 
     return {
-        "evidence_records": list(normalize_incident_reports(
-            request.records,
-            source_name=request.source_name or "incident-report-export",
-        ))
+        "evidence_records": list(
+            normalize_incident_reports(
+                request.records,
+                source_name=request.source_name or "incident-report-export",
+            )
+        )
     }
 
 
@@ -482,7 +496,9 @@ async def demo_estimate():
     graph = patch_lateral_movement_graph()
     evidence = patch_lateral_movement_evidence()
     compilation = await asyncio.to_thread(compile_evidence_dataset, graph, evidence)
-    report = await asyncio.to_thread(estimate_causal_effect, graph, compilation.dataframe, compilation.profile)
+    report = await asyncio.to_thread(
+        estimate_causal_effect, graph, compilation.dataframe, compilation.profile
+    )
     return {
         "scenario": "patching reduces observed lateral movement",
         "graph": graph,

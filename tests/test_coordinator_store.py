@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from coordinator.store import RunRecord, RunStore
+from coordinator.store import RunStore
 from schema import AgentConfig, ChildConfig, DecisionMemo
 
 

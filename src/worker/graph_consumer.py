@@ -49,7 +49,7 @@ def _apply_sync(value: bytes) -> None:
             with conn:
                 apply_envelope(conn, envelope)
             return
-        except sqlite3.OperationalError as exc:
+        except sqlite3.OperationalError:
             if attempt >= _MAX_WRITE_ATTEMPTS:
                 logger.exception(
                     "5D graph consumer: giving up on %s for run %s after %s attempts",

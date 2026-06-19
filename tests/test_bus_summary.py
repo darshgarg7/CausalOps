@@ -10,7 +10,11 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from bus.context import bind_run_context, clear_run_context, get_run_summary  # noqa: E402
+from bus.context import (  # noqa: E402
+    bind_run_context,
+    clear_run_context,
+    get_run_summary,
+)
 from bus.events import ArtifactType  # noqa: E402
 from bus.publish import publish_artifact, publish_spawn  # noqa: E402
 from bus.summary import RunBusSummary  # noqa: E402
@@ -71,7 +75,10 @@ def test_benchmarking_uses_summary_counts() -> None:
         "ranked_strategies": [],
         "evaluator_error": None,
         "causal_payload": {"graph": {}},
-        "causal_estimate_report": {"method": "withheld:data_quality_gates", "ate": None},
+        "causal_estimate_report": {
+            "method": "withheld:data_quality_gates",
+            "ate": None,
+        },
     }
     summary = {
         "parent_config_count": 3,

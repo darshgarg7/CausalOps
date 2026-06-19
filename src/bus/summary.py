@@ -17,6 +17,8 @@ class RunBusSummary:
     has_ranked_strategies: bool = False
     has_causal_payload: bool = False
     has_estimate_report: bool = False
+    has_agent_evolution_report: bool = False
+    has_policy_optimization_report: bool = False
     telemetry_count: int = field(default=0, repr=False)
 
     def record(self, artifact_type: ArtifactType) -> None:
@@ -34,6 +36,10 @@ class RunBusSummary:
             self.has_causal_payload = True
         elif artifact_type == ArtifactType.CAUSAL_ESTIMATE_REPORT:
             self.has_estimate_report = True
+        elif artifact_type == ArtifactType.AGENT_EVOLUTION_REPORT:
+            self.has_agent_evolution_report = True
+        elif artifact_type == ArtifactType.POLICY_OPTIMIZATION_REPORT:
+            self.has_policy_optimization_report = True
         elif artifact_type == ArtifactType.EXECUTION_PHASE:
             self.telemetry_count += 1
 
@@ -45,4 +51,6 @@ class RunBusSummary:
             "has_ranked_strategies": self.has_ranked_strategies,
             "has_causal_payload": self.has_causal_payload,
             "has_estimate_report": self.has_estimate_report,
+            "has_agent_evolution_report": self.has_agent_evolution_report,
+            "has_policy_optimization_report": self.has_policy_optimization_report,
         }

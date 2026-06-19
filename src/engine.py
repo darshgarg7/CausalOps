@@ -13,7 +13,6 @@ import hashlib
 import json
 import uuid
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
 from benchmarking import score_agent_tiers
@@ -24,8 +23,9 @@ from bus.publish import publish_run_event, publish_telemetry
 from coordinator.runner import execute_run
 from coordinator.store import RunRecord, get_run_store
 from demo_fixtures import is_demo_evidence, resolve_run_evidence
+from paths import data_dir
 
-DATA_DIR = Path("../data")
+DATA_DIR = data_dir()
 
 
 def serialize_pydantic(obj: Any) -> Any:
@@ -134,12 +134,13 @@ async def run_hivemind(
             "ci_high": causal_estimate_report.get("ci_high"),
             "n_rows": causal_estimate_report.get("n_rows", 0),
             "method": causal_estimate_report.get("method", "unknown"),
-            "demo_fixture": used_demo_fixture
-            or is_demo_evidence(resolved_evidence),
+            "demo_fixture": used_demo_fixture or is_demo_evidence(resolved_evidence),
         },
         "causal_estimate_report": causal_estimate_report,
         "causal_dataset_profile": causal_dataset_profile,
         "agent_tier_metrics": agent_tier_metrics,
+        "agent_evolution_report": final_state.get("agent_evolution_report"),
+        "policy_optimization_report": final_state.get("policy_optimization_report"),
         "bus_summary": bus_summary,
     }
 
@@ -189,6 +190,8 @@ def _bus_summary_from_record(record: RunRecord) -> dict[str, Any]:
         "has_ranked_strategies": bool(record.ranked_strategies),
         "has_causal_payload": record.causal_payload is not None,
         "has_estimate_report": record.causal_estimate_report is not None,
+        "has_agent_evolution_report": record.agent_evolution_report is not None,
+        "has_policy_optimization_report": record.policy_optimization_report is not None,
     }
 
 
@@ -252,7 +255,7 @@ def _risk_score(memo: dict[str, Any]) -> float:
 def _stable_score(text: str, salt: str, low: float, high: float) -> float:
     """Create a stable pseudo-score for UI dimensions without randomness."""
 
-    digest = hashlib.sha256(f"{salt}:{text}".encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(f"{salt}:{text}".encode()).hexdigest()
     value = int(digest[:8], 16) / 0xFFFFFFFF
     return round(low + (high - low) * value, 2)
 

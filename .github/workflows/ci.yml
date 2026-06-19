@@ -23,13 +23,16 @@ jobs:
           cache: "pip"
 
       - name: Install backend dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint backend
+        run: python -m ruff check .
 
       - name: Run backend tests
         run: python -m pytest
 
       - name: Compile Python modules
-        run: python -m py_compile src/*.py tests/*.py
+        run: python -m compileall -q src tests
 
   frontend:
     name: Frontend lint, test, and build

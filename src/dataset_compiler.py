@@ -9,11 +9,12 @@ expected to withhold ATE output rather than inventing rows.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import os
 import tempfile
-from typing import Any, Iterable, Iterator
+from collections.abc import Iterable, Iterator
+from dataclasses import dataclass
+from typing import Any
 
 import pandas as pd
 import polars as pl
@@ -110,8 +111,7 @@ def compile_evidence_dataset(
     treatment = clean_variable(graph_def.get("treatment_variable", "treatment"))
     outcome = clean_variable(graph_def.get("outcome_variable", "outcome"))
     confounders = [
-        clean_variable(c)
-        for c in graph_def.get("candidate_confounders", [])
+        clean_variable(c) for c in graph_def.get("candidate_confounders", [])
     ]
     columns = list(dict.fromkeys([treatment, outcome, *confounders]))
 
@@ -156,7 +156,7 @@ def compile_evidence_dataset(
             lf = pl.scan_ndjson(tmp_path)
             existing_cols = lf.collect_schema().names()
             missing_cols = [c for c in columns if c not in existing_cols]
-            
+
             exprs = [
                 pl.col(c).cast(pl.Float64, strict=False)
                 for c in existing_cols
@@ -184,15 +184,9 @@ def compile_evidence_dataset(
     has_required_columns = {treatment, outcome}.issubset(model_df.columns)
     if not has_required_columns:
         model_df = pd.DataFrame(columns=columns)
-    treated_count = (
-        int((model_df[treatment] > 0).sum())
-        if treatment in model_df
-        else 0
-    )
+    treated_count = int((model_df[treatment] > 0).sum()) if treatment in model_df else 0
     control_count = (
-        int((model_df[treatment] <= 0).sum())
-        if treatment in model_df
-        else 0
+        int((model_df[treatment] <= 0).sum()) if treatment in model_df else 0
     )
     missingness = {
         col: (
@@ -236,7 +230,9 @@ def compile_evidence_dataset(
         missingness=missingness,
         warnings=warnings,
     )
-    return DatasetCompilation(dataframe=model_df, profile=profile, provenance=provenance)
+    return DatasetCompilation(
+        dataframe=model_df, profile=profile, provenance=provenance
+    )
 
 
 def passes_estimation_gates(
@@ -310,7 +306,9 @@ def _profile_warnings(
 
     warnings: list[str] = []
     if df.empty:
-        warnings.append("No complete empirical rows were compiled for treatment/outcome.")
+        warnings.append(
+            "No complete empirical rows were compiled for treatment/outcome."
+        )
         return warnings
     if treatment in df and df[treatment].nunique(dropna=True) < 2:
         warnings.append("Treatment has no observed variation.")

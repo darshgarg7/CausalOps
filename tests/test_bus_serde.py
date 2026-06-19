@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -33,7 +33,7 @@ def test_envelope_round_trip() -> None:
         artifact_type=ArtifactType.EXECUTION_PHASE,
         payload={"phase": "ORCHESTRATOR", "message": "ok", "status": "running"},
         sequence=0,
-        timestamp=datetime(2026, 5, 28, 12, 0, 0, tzinfo=timezone.utc),
+        timestamp=datetime(2026, 5, 28, 12, 0, 0, tzinfo=UTC),
     )
     restored = bytes_to_envelope(envelope_to_bytes(original))
     assert restored.run_id == original.run_id

@@ -105,8 +105,7 @@ def _build_gml(graph_def: dict[str, Any], data_columns) -> str:
     treatment = clean_variable(graph_def.get("treatment_variable", "treatment"))
     outcome = clean_variable(graph_def.get("outcome_variable", "outcome"))
     confounders = {
-        clean_variable(c)
-        for c in graph_def.get("candidate_confounders", [])
+        clean_variable(c) for c in graph_def.get("candidate_confounders", [])
     }
 
     required_nodes = {treatment, outcome, *confounders, *data_column_set}
@@ -144,9 +143,7 @@ def _linear_regression_stats(
         import statsmodels.api as sm
     except Exception as exc:
         return {
-            "warnings": [
-                f"statsmodels unavailable; p-value/CI not computed: {exc}"
-            ]
+            "warnings": [f"statsmodels unavailable; p-value/CI not computed: {exc}"]
         }
 
     columns = [treatment, *adjustment_set]

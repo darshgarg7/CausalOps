@@ -67,7 +67,9 @@ def test_dispatch_parent_and_child_commands(store: RunStore, monkeypatch) -> Non
 
     monkeypatch.setattr("worker.dispatch.publish_artifact", lambda **_: None)
 
-    parent_envelope = build_parent_command(record, record.parent_configs[0], task_id="p1")
+    parent_envelope = build_parent_command(
+        record, record.parent_configs[0], task_id="p1"
+    )
     asyncio.run(dispatch_spawn_envelope(parent_envelope, store=store))
 
     updated = store.get_run("run-worker-1")
@@ -113,7 +115,9 @@ def test_duplicate_parent_command_is_skipped(store: RunStore, monkeypatch) -> No
     sys.modules["agents"] = agents
     monkeypatch.setattr("worker.dispatch.publish_artifact", lambda **_: None)
 
-    parent_envelope = build_parent_command(record, record.parent_configs[0], task_id="p1")
+    parent_envelope = build_parent_command(
+        record, record.parent_configs[0], task_id="p1"
+    )
     asyncio.run(dispatch_spawn_envelope(parent_envelope, store=store))
     asyncio.run(dispatch_spawn_envelope(parent_envelope, store=store))
 

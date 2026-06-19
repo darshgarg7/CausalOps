@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from bus.context import get_run_context
@@ -37,7 +37,7 @@ def _emit(
         artifact_type=artifact_type,
         payload=payload,
         sequence=sequence,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
     )
     publish_envelope_sync(envelope)
 
@@ -72,7 +72,8 @@ def publish_work_command(
 
     if artifact_type not in (ArtifactType.RUN_PARENT, ArtifactType.RUN_CHILD):
         raise ValueError(
-            f"publish_work_command expected run_parent or run_child, got {artifact_type}"
+            "publish_work_command expected run_parent or run_child, "
+            f"got {artifact_type}"
         )
     _emit(
         agent_id=agent_id,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Literal
 
@@ -16,6 +16,7 @@ Tier = Literal[
     "causal",
     "estimator",
     "reasoning",
+    "optimizer",
     "control",
 ]
 
@@ -33,6 +34,8 @@ class ArtifactType(str, Enum):
     CAUSAL_PAYLOAD = "causal_payload"
     CAUSAL_ESTIMATE_REPORT = "causal_estimate_report"
     REASONING_REPORT = "reasoning_report"
+    AGENT_EVOLUTION_REPORT = "agent_evolution_report"
+    POLICY_OPTIMIZATION_REPORT = "policy_optimization_report"
     RUN_STARTED = "run_started"
     RUN_COMPLETED = "run_completed"
     RUN_FAILED = "run_failed"
@@ -50,9 +53,9 @@ class EventEnvelope(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
     sequence: int = 0
     timestamp: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(UTC),
     )
 
     def model_post_init(self, __context: Any) -> None:
         if self.timestamp.tzinfo is None:
-            self.timestamp = self.timestamp.replace(tzinfo=timezone.utc)
+            self.timestamp = self.timestamp.replace(tzinfo=UTC)

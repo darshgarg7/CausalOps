@@ -11,7 +11,7 @@ from bus.publish import publish_telemetry
 from coordinator.barriers import wait_for_barrier
 from coordinator.refutation import refutation_next_step
 from coordinator.spawn import enqueue_child_tasks, enqueue_parent_tasks
-from coordinator.store import RunRecord, RunStore, get_run_store, set_run_store
+from coordinator.store import RunRecord, RunStore, get_run_store
 
 logger = logging.getLogger(__name__)
 
@@ -45,8 +45,10 @@ async def execute_run(
 
     try:
         await _run_orchestrator(record, run_store)
+        await _run_parent_evolution(record, run_store)
         await _dispatch_parents(record, run_store)
         await _gather_children(record, run_store)
+        await _run_child_evolution(record, run_store)
         await _dispatch_children(record, run_store)
         await _run_evaluator(record, run_store)
         await _run_causal_loop(record, run_store)
@@ -62,17 +64,12 @@ async def execute_run(
         from bus.producer import kafka_enabled
 
         if not kafka_enabled():
-            try:
-                from graph_5d import connect_graph_db, reconstruct_5d_graph
+            await asyncio.to_thread(_backfill_5d_graph, record)
 
-                conn = connect_graph_db()
-                try:
-                    with conn:
-                        reconstruct_5d_graph(conn, run_id, record)
-                finally:
-                    conn.close()
-            except Exception as exc:
-                logger.exception("Failed to build 5D spatiotemporal graph: %s", exc)
+        await _run_policy_learning(record, run_store)
+
+        if not kafka_enabled():
+            await asyncio.to_thread(_ingest_policy_optimization, record)
 
         record.status = "completed"
         run_store.save(record)
@@ -92,6 +89,30 @@ async def _run_orchestrator(record: RunRecord, store: RunStore) -> None:
     update = await asyncio.to_thread(grand_orchestrator_node, state)
     record.apply_node_update(update)
     store.save(record)
+
+
+async def _run_parent_evolution(record: RunRecord, store: RunStore) -> None:
+    from evolution import (
+        evolve_parent_configs,
+        merge_evolution_reports,
+        publish_evolution_phase,
+    )
+
+    store.set_phase(record, "parent_evolution")
+    state = record.to_graph_state()
+    evolved, phase_report = await asyncio.to_thread(
+        evolve_parent_configs,
+        state,
+        record.parent_configs,
+    )
+    record.parent_configs = evolved
+    record.expected_parent_count = len(evolved)
+    record.agent_evolution_report = merge_evolution_reports(
+        record.agent_evolution_report,
+        phase_report,
+    )
+    store.save(record)
+    await asyncio.to_thread(publish_evolution_phase, state, phase_report)
 
 
 async def _dispatch_parents(record: RunRecord, store: RunStore) -> None:
@@ -128,6 +149,30 @@ async def _gather_children(record: RunRecord, store: RunStore) -> None:
         message=f"Gathered {child_count} child tasks",
         status="done",
     )
+
+
+async def _run_child_evolution(record: RunRecord, store: RunStore) -> None:
+    from evolution import (
+        evolve_child_configs,
+        merge_evolution_reports,
+        publish_evolution_phase,
+    )
+
+    store.set_phase(record, "child_evolution")
+    state = record.to_graph_state()
+    evolved, phase_report = await asyncio.to_thread(
+        evolve_child_configs,
+        state,
+        record.child_configs,
+    )
+    record.child_configs = evolved
+    record.expected_child_count = len(evolved)
+    record.agent_evolution_report = merge_evolution_reports(
+        record.agent_evolution_report,
+        phase_report,
+    )
+    store.save(record)
+    await asyncio.to_thread(publish_evolution_phase, state, phase_report)
 
 
 async def _dispatch_children(record: RunRecord, store: RunStore) -> None:
@@ -187,3 +232,63 @@ async def _run_reasoner(record: RunRecord, store: RunStore) -> None:
     update = await asyncio.to_thread(reasoning_node, state)
     record.apply_node_update(update)
     store.save(record)
+
+
+async def _run_policy_learning(record: RunRecord, store: RunStore) -> None:
+    from policy_learning import policy_learning_node
+
+    store.set_phase(record, "policy_learning")
+    state = record.to_graph_state()
+    kg_snapshot = await asyncio.to_thread(_load_kg_snapshot, record.run_id)
+    update = await asyncio.to_thread(policy_learning_node, state, kg_snapshot)
+    record.apply_node_update(update)
+    store.save(record)
+
+
+def _backfill_5d_graph(record: RunRecord) -> None:
+    try:
+        from graph_5d import connect_graph_db, reconstruct_5d_graph
+
+        conn = connect_graph_db()
+        try:
+            with conn:
+                reconstruct_5d_graph(conn, record.run_id, record)
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.exception("Failed to build 5D spatiotemporal graph: %s", exc)
+
+
+def _ingest_policy_optimization(record: RunRecord) -> None:
+    if not record.policy_optimization_report:
+        return
+    try:
+        from graph_5d import connect_graph_db, ingest_policy_optimization
+
+        conn = connect_graph_db()
+        try:
+            with conn:
+                ingest_policy_optimization(
+                    conn,
+                    record.run_id,
+                    record.policy_optimization_report,
+                )
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.exception("Failed to ingest policy optimization graph update: %s", exc)
+
+
+def _load_kg_snapshot(run_id: str) -> dict[str, Any]:
+    try:
+        from graph_5d import connect_graph_db, get_5d_graph
+
+        conn = connect_graph_db()
+        try:
+            with conn:
+                return get_5d_graph(conn, run_id)
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.exception("Failed to load KG snapshot for RL loop: %s", exc)
+        return {"run_id": run_id, "nodes": [], "edges": []}

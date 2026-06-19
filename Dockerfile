@@ -11,8 +11,12 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+COPY requirements.txt pyproject.toml README.md LICENSE.md ./
 
 RUN pip install --default-timeout=300 --no-cache-dir -r requirements.txt
+
+COPY src ./src
+
+RUN pip install --no-deps -e .
 
 COPY . .

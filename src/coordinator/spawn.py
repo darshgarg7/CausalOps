@@ -35,6 +35,8 @@ def build_parent_command(
         "focus_objective": config.focus_objective,
         "task_description": record.task_description,
     }
+    if config.policy is not None:
+        payload["policy"] = config.policy.model_dump()
     return EventEnvelope(
         run_id=record.run_id,
         correlation_id=record.correlation_id,
@@ -62,6 +64,8 @@ def build_child_command(
         "focus_objective": config.focus_objective,
         "task_description": record.task_description,
     }
+    if config.policy is not None:
+        payload["policy"] = config.policy.model_dump()
     return EventEnvelope(
         run_id=record.run_id,
         correlation_id=record.correlation_id,

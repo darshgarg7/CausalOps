@@ -35,6 +35,7 @@ def route_to_parents(state: GraphState) -> list[Send]:
                 "correlation_id": state["correlation_id"],
                 "persona": config.persona,
                 "focus_objective": config.focus_objective,
+                "policy": config.policy.model_dump() if config.policy else None,
             },
         )
         for config in state.get("parent_configs", [])
@@ -70,6 +71,7 @@ def route_to_children(state: GraphState) -> list[Send]:
                 "parent_persona": config.parent_persona,
                 "persona": config.persona,
                 "focus_objective": config.focus_objective,
+                "policy": config.policy.model_dump() if config.policy else None,
             },
         )
         for config in state.get("child_configs", [])

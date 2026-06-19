@@ -21,14 +21,22 @@ from causal_discovery import (
     estimation_edges,
 )
 
-
 HYPOTHESIZED_EDGES = [
-    {"source": "Asset_Criticality", "target": "Patch_Applied",
-     "relationship": "Critical assets are prioritized for patching."},
-    {"source": "Asset_Criticality", "target": "Lateral_Movement",
-     "relationship": "Critical assets attract more adversary movement."},
-    {"source": "Patch_Applied", "target": "Lateral_Movement",
-     "relationship": "Patching reduces exploitability and movement."},
+    {
+        "source": "Asset_Criticality",
+        "target": "Patch_Applied",
+        "relationship": "Critical assets are prioritized for patching.",
+    },
+    {
+        "source": "Asset_Criticality",
+        "target": "Lateral_Movement",
+        "relationship": "Critical assets attract more adversary movement.",
+    },
+    {
+        "source": "Patch_Applied",
+        "target": "Lateral_Movement",
+        "relationship": "Patching reduces exploitability and movement.",
+    },
 ]
 
 
@@ -39,9 +47,7 @@ def demo_dataframe(n_rows: int = 80) -> pd.DataFrame:
     for index in range(n_rows):
         treated = 1 if index % 2 == 0 else 0
         critical = 1 if index % 5 == 0 else 0
-        outcome = int(
-            (not treated and index % 3 == 0) or (critical and index % 7 == 0)
-        )
+        outcome = int((not treated and index % 3 == 0) or (critical and index % 7 == 0))
         rows.append(
             {
                 "Patch_Applied": treated,
@@ -81,9 +87,7 @@ def test_apply_discovery_marks_statuses_and_filters_estimation():
     report = discover_and_validate(demo_dataframe(), HYPOTHESIZED_EDGES)
     validated = apply_discovery(graph_def, report)
 
-    statuses = {
-        (e["source"], e["target"]): e["status"] for e in validated["edges"]
-    }
+    statuses = {(e["source"], e["target"]): e["status"] for e in validated["edges"]}
     # Refuted edge is kept (for graph/UI downgrade) but marked.
     assert statuses[("Asset_Criticality", "Patch_Applied")] == "refuted"
     assert statuses[("Patch_Applied", "Lateral_Movement")] == "confirmed"
@@ -93,7 +97,8 @@ def test_apply_discovery_marks_statuses_and_filters_estimation():
     assert ("Patch_Applied", "Lateral_Movement") in est
     # Validated edges carry their evidence.
     confirmed = next(
-        e for e in validated["edges"]
+        e
+        for e in validated["edges"]
         if (e["source"], e["target"]) == ("Patch_Applied", "Lateral_Movement")
     )
     assert confirmed["p_value"] is not None and confirmed["p_value"] < 0.05
@@ -143,9 +148,7 @@ def test_ingest_causal_updates_edge_status_in_place():
     ingest_causal(conn, run_id, validated, observed_at="2026-05-12T00:05:00Z")
 
     graph = get_5d_graph(conn, run_id)
-    causal_edges = [
-        e for e in graph["edges"] if e["source"] == "causal.A"
-    ]
+    causal_edges = [e for e in graph["edges"] if e["source"] == "causal.A"]
     # Updated in place: one edge, downgraded, status recorded.
     assert len(causal_edges) == 1
     assert causal_edges[0]["confidence"] == 0.05

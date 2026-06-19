@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 DEMO_SOURCE_NAME = "demo-sentinel-export"
 
 
@@ -44,14 +43,19 @@ def demo_causal_payload() -> dict[str, Any]:
         "measurement_plan": [
             {
                 "variable": "Patch_Applied",
-                "description": "Whether the vulnerable asset was patched before the observation window.",
+                "description": (
+                    "Whether the vulnerable asset was patched before the "
+                    "observation window."
+                ),
                 "evidence_fields": ["patch_status", "Patch_Applied"],
                 "aggregation": "binary max over pre-window observations",
                 "expected_type": "binary",
             },
             {
                 "variable": "Lateral_Movement",
-                "description": "Whether downstream lateral movement was observed after exposure.",
+                "description": (
+                    "Whether downstream lateral movement was observed after exposure."
+                ),
                 "evidence_fields": ["lateral_movement", "Lateral_Movement"],
                 "aggregation": "binary max over post-exposure window",
                 "expected_type": "binary",
@@ -136,10 +140,7 @@ def patch_lateral_movement_evidence(n_rows: int = 80) -> list[dict[str, Any]]:
     for index in range(n_rows):
         treated = 1 if index % 2 == 0 else 0
         critical = 1 if index % 5 == 0 else 0
-        outcome = int(
-            (not treated and index % 3 == 0)
-            or (critical and index % 7 == 0)
-        )
+        outcome = int((not treated and index % 3 == 0) or (critical and index % 7 == 0))
         records.append(
             {
                 "source_type": "siem",

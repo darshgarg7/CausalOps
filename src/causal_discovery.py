@@ -171,7 +171,9 @@ def discover_and_validate(
 
         if src not in variables or tgt not in variables:
             report.verdicts.append(
-                EdgeVerdict(src, tgt, "compatible", detail="Variable not measured; untestable.")
+                EdgeVerdict(
+                    src, tgt, "compatible", detail="Variable not measured; untestable."
+                )
             )
             continue
 
@@ -183,21 +185,41 @@ def discover_and_validate(
                 if sep
                 else f"Marginally independent (p={p:.4f}, alpha={alpha})."
             )
-            report.verdicts.append(EdgeVerdict(src, tgt, "refuted", p, strength, detail))
+            report.verdicts.append(
+                EdgeVerdict(src, tgt, "refuted", p, strength, detail)
+            )
         elif (src, tgt) in directed:
             report.verdicts.append(
-                EdgeVerdict(src, tgt, "confirmed", p, strength,
-                            "Dependence and collider orientation both match the data.")
+                EdgeVerdict(
+                    src,
+                    tgt,
+                    "confirmed",
+                    p,
+                    strength,
+                    "Dependence and collider orientation both match the data.",
+                )
             )
         elif (tgt, src) in directed:
             report.verdicts.append(
-                EdgeVerdict(tgt, src, "reversed", p, strength,
-                            f"Data orients {tgt} -> {src}, opposite to the hypothesis.")
+                EdgeVerdict(
+                    tgt,
+                    src,
+                    "reversed",
+                    p,
+                    strength,
+                    f"Data orients {tgt} -> {src}, opposite to the hypothesis.",
+                )
             )
         else:
             report.verdicts.append(
-                EdgeVerdict(src, tgt, "compatible", p, strength,
-                            "Dependence supported; direction adopted from the hypothesis.")
+                EdgeVerdict(
+                    src,
+                    tgt,
+                    "compatible",
+                    p,
+                    strength,
+                    "Dependence supported; direction adopted from the hypothesis.",
+                )
             )
 
     for pair in adjacent - hypothesized_pairs:
@@ -212,8 +234,13 @@ def discover_and_validate(
         oriented = (src, tgt) in directed
         report.verdicts.append(
             EdgeVerdict(
-                src, tgt, "discovered", p, strength,
-                "Oriented by collider structure." if oriented
+                src,
+                tgt,
+                "discovered",
+                p,
+                strength,
+                "Oriented by collider structure."
+                if oriented
                 else "Dependence found in data; direction undetermined.",
             )
         )
@@ -302,9 +329,7 @@ def estimation_edges(graph_def: dict[str, Any]) -> list[dict[str, Any]]:
     """Edges that should participate in effect estimation (refuted ones excluded)."""
 
     return [
-        edge
-        for edge in graph_def.get("edges", [])
-        if edge.get("status") != "refuted"
+        edge for edge in graph_def.get("edges", []) if edge.get("status") != "refuted"
     ]
 
 

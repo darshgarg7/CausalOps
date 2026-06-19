@@ -14,7 +14,6 @@ os.environ.setdefault("AZURE_OPENAI_API_VERSION", "2024-08-01-preview")
 
 from api import app  # noqa: E402
 
-
 client = TestClient(app)
 
 

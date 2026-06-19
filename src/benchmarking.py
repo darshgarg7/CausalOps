@@ -8,7 +8,8 @@ agents, evaluator, causal architect, and estimator are being tested consistently
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 
 def score_agent_tiers(
@@ -194,16 +195,19 @@ def _score_causal_architect(graph: dict[str, Any]) -> dict[str, Any]:
         if edge.get("required_evidence") or edge.get("falsification_tests")
     )
     evidence_ratio = edge_evidence / max(len(edges), 1) if edges else 0.0
-    score = sum(
-        [
-            bool(nodes),
-            bool(edges),
-            bool(treatment),
-            bool(outcome),
-            has_path,
-            acyclic,
-        ]
-    ) / 6
+    score = (
+        sum(
+            [
+                bool(nodes),
+                bool(edges),
+                bool(treatment),
+                bool(outcome),
+                has_path,
+                acyclic,
+            ]
+        )
+        / 6
+    )
     score = min(1.0, score * 0.8 + evidence_ratio * 0.2)
     return {
         "score": round(score, 3),
@@ -214,8 +218,7 @@ def _score_causal_architect(graph: dict[str, Any]) -> dict[str, Any]:
             "treatment_to_outcome_path": has_path,
         },
         "target": (
-            "valid measurable DAG with treatment/outcome path and evidence "
-            "requirements"
+            "valid measurable DAG with treatment/outcome path and evidence requirements"
         ),
     }
 

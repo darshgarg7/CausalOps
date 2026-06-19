@@ -8,17 +8,16 @@ code can therefore treat agent output as hypothesis context rather than data.
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
 
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import AzureChatOpenAI
 from pydantic import BaseModel
 
 
 from bus.events import ArtifactType
 from bus.helpers import bind_from_state
 from bus.publish import publish_artifact, publish_spawn, publish_telemetry
+from llm import get_llm
 from schema import (
     AgentConfig,
     ChildConfig,
@@ -31,20 +30,8 @@ from schema import (
 logger = logging.getLogger(__name__)
 
 
-def _azure_chat(temperature: float) -> AzureChatOpenAI:
-    """Create an Azure OpenAI chat client from environment configuration."""
-
-    return AzureChatOpenAI(
-        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-        api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-        azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o"),
-        api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview"),
-        temperature=temperature,
-    )
-
-
-llm = _azure_chat(temperature=0.4)
-low_temp_llm = _azure_chat(temperature=0.0)
+llm = get_llm(temperature=0.4)
+low_temp_llm = get_llm(temperature=0.0)
 
 
 class ParentConfigsOutput(BaseModel):
@@ -87,6 +74,8 @@ def grand_orchestrator_node(state: GraphState) -> dict[str, list[AgentConfig]]:
     result = grand_orchestrator_chain.invoke(
         {"task_description": state["task_description"]}
     )
+    if isinstance(result, dict):
+        result = ParentConfigsOutput(**result)
     logger.info("Spawned %s parent agents", len(result.parent_configs))
 
     for config in result.parent_configs:
@@ -121,7 +110,8 @@ parent_agent_prompt = ChatPromptTemplate.from_messages(
             "incident. Your objective is: {focus_objective}. Analyze the "
             "incident metacognitively, name blind spots, and spawn 2 "
             "specialized Child Agents for granular technical details that "
-            "you cannot cover alone.",
+            "you cannot cover alone.\n\n"
+            "EVOLVED POLICY PRIOR:\n{policy_context}",
         ),
         ("user", "INCIDENT:\n{task_description}"),
     ]
@@ -150,8 +140,11 @@ def parent_agent_node(state: ParentState) -> dict[str, list[ChildConfig]]:
             "persona": state["persona"],
             "focus_objective": state["focus_objective"],
             "task_description": state["task_description"],
+            "policy_context": _policy_context(state.get("policy")),
         }
     )
+    if isinstance(result, dict):
+        result = ChildConfigsOutput(**result)
 
     for child in result.child_configs:
         child.parent_persona = state["persona"]
@@ -191,7 +184,8 @@ child_agent_prompt = ChatPromptTemplate.from_messages(
             "second_order_effects, evidence_needs, and a confidence label. "
             "Evidence needs must name concrete telemetry, logs, CVE feeds, "
             "incident-report facts, or analyst observations that would "
-            "confirm or falsify your strategy.",
+            "confirm or falsify your strategy.\n\n"
+            "EVOLVED POLICY PRIOR:\n{policy_context}",
         ),
         ("user", "INCIDENT:\n{task_description}"),
     ]
@@ -233,6 +227,7 @@ def child_agent_node(state: ChildState) -> dict[str, list[DecisionMemo]]:
                 "parent_persona": state["parent_persona"],
                 "focus_objective": state["focus_objective"],
                 "task_description": state["task_description"],
+                "policy_context": _policy_context(state.get("policy")),
             }
         )
         logger.info("Child agent [%s] completed memo", state["persona"])
@@ -247,10 +242,26 @@ def child_agent_node(state: ChildState) -> dict[str, list[DecisionMemo]]:
         )
         memo = _fallback_memo(state, "blocked by azure content filter")
     except Exception as exc:
-        logger.error(
-            "Child agent [%s] failed unexpectedly: %s", state["persona"], exc
-        )
-        memo = _fallback_memo(state, f"Unexpected error: {exc}")
+        error_name = type(exc).__name__
+        if "ContentFilter" in error_name:
+            message = f"Child [{state['persona']}] blocked by content filter: {exc}"
+            logger.warning(message)
+            publish_telemetry(
+                agent_id=agent_id,
+                tier="child",
+                phase="ERROR",
+                message=message,
+                status="error",
+            )
+            memo = _fallback_memo(state, "blocked by azure content filter")
+        else:
+            logger.error(
+                "Child agent [%s] failed unexpectedly: %s", state["persona"], exc
+            )
+            memo = _fallback_memo(state, f"Unexpected error: {exc}")
+
+    if isinstance(memo, dict):
+        memo = DecisionMemo(**memo)
 
     publish_artifact(
         agent_id=agent_id,
@@ -275,3 +286,24 @@ def memo_to_text(memo: Any) -> str:
     if hasattr(memo, "model_dump_json"):
         return memo.model_dump_json()
     return str(memo)
+
+
+def _policy_context(policy: Any) -> str:
+    """Render an evolved policy prior into compact prompt guidance."""
+
+    if not policy:
+        return "No evolved policy prior; use the stated objective."
+    if hasattr(policy, "model_dump"):
+        policy = policy.model_dump()
+    traits = dict(policy.get("traits", {}) if isinstance(policy, dict) else {})
+    top_traits = sorted(traits.items(), key=lambda item: item[1], reverse=True)[:4]
+    top_text = ", ".join(f"{name}={value:.2f}" for name, value in top_traits)
+    objective_hint = policy.get("objective_hint") if isinstance(policy, dict) else None
+    policy_id = (
+        policy.get("policy_id", "unknown") if isinstance(policy, dict) else "unknown"
+    )
+    priority = objective_hint or top_text or "balanced search"
+    return (
+        f"policy_id={policy_id}; prioritize {priority}; "
+        f"top_traits={top_text or 'none'}."
+    )

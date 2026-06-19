@@ -22,10 +22,12 @@ from graph_5d import (
     ingest_causal,
     ingest_child,
     ingest_evidence_record,
+    ingest_evolution_report,
     ingest_findings,
     ingest_memo,
     ingest_orchestrator,
     ingest_parent,
+    ingest_policy_optimization,
 )
 
 logger = logging.getLogger(__name__)
@@ -78,6 +80,14 @@ def apply_envelope(conn: sqlite3.Connection, envelope: EventEnvelope) -> bool:
         ingest_findings(conn, run_id, payload, observed_at=observed_at)
         return True
 
+    if artifact_type == ArtifactType.AGENT_EVOLUTION_REPORT:
+        ingest_evolution_report(conn, run_id, payload, observed_at=observed_at)
+        return True
+
+    if artifact_type == ArtifactType.POLICY_OPTIMIZATION_REPORT:
+        ingest_policy_optimization(conn, run_id, payload, observed_at=observed_at)
+        return True
+
     return False
 
 
@@ -112,6 +122,4 @@ def _ingest_run_evidence(
         return
     evidence = getattr(record, "evidence_records", []) or []
     for r in evidence:
-        ingest_evidence_record(
-            conn, run_id, r, causal_nodes, default_time=default_time
-        )
+        ingest_evidence_record(conn, run_id, r, causal_nodes, default_time=default_time)

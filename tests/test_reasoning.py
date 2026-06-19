@@ -22,9 +22,7 @@ def demo_records(n_rows: int = 80) -> list[dict]:
     for index in range(n_rows):
         treated = 1 if index % 2 == 0 else 0
         critical = 1 if index % 5 == 0 else 0
-        outcome = int(
-            (not treated and index % 3 == 0) or (critical and index % 7 == 0)
-        )
+        outcome = int((not treated and index % 3 == 0) or (critical and index % 7 == 0))
         records.append(
             {
                 "asset_id": f"host-{index:03d}",
@@ -45,20 +43,38 @@ VALIDATED_GRAPH = {
         {"id": "Asset_Criticality"},
     ],
     "edges": [
-        {"source": "Asset_Criticality", "target": "Patch_Applied",
-         "status": "refuted", "p_value": 1.0},
-        {"source": "Asset_Criticality", "target": "Lateral_Movement",
-         "status": "confirmed", "p_value": 0.064},
-        {"source": "Patch_Applied", "target": "Lateral_Movement",
-         "status": "confirmed", "p_value": 0.0004},
+        {
+            "source": "Asset_Criticality",
+            "target": "Patch_Applied",
+            "status": "refuted",
+            "p_value": 1.0,
+        },
+        {
+            "source": "Asset_Criticality",
+            "target": "Lateral_Movement",
+            "status": "confirmed",
+            "p_value": 0.064,
+        },
+        {
+            "source": "Patch_Applied",
+            "target": "Lateral_Movement",
+            "status": "confirmed",
+            "p_value": 0.0004,
+        },
     ],
     "treatment_variable": "Patch_Applied",
     "outcome_variable": "Lateral_Movement",
     "candidate_confounders": ["Asset_Criticality"],
 }
 
-ESTIMATE = {"ate": -0.30, "p_value": 0.001, "ci_low": -0.45, "ci_high": -0.15,
-            "n_rows": 80, "method": "linear_regression"}
+ESTIMATE = {
+    "ate": -0.30,
+    "p_value": 0.001,
+    "ci_low": -0.45,
+    "ci_high": -0.15,
+    "n_rows": 80,
+    "method": "linear_regression",
+}
 
 
 def test_anomalies_are_patched_hosts_with_movement():
@@ -78,9 +94,10 @@ def test_anomalies_are_patched_hosts_with_movement():
 
 
 def test_refuted_edges_do_not_explain_anomalies():
-    graph = {**VALIDATED_GRAPH, "edges": [
-        dict(e, status="refuted") for e in VALIDATED_GRAPH["edges"]
-    ]}
+    graph = {
+        **VALIDATED_GRAPH,
+        "edges": [dict(e, status="refuted") for e in VALIDATED_GRAPH["edges"]],
+    }
     report = build_reasoning_report(demo_records(), graph, ESTIMATE)
     assert report["anomalies"], "anomalies should still be detected"
     # With every secondary cause refuted, anomalies become unexplained.
@@ -133,8 +150,12 @@ def test_ingest_findings_places_anomalies_in_asset_zone():
     init_5d_schema(conn)
     run_id = "run-test"
     log_st_node(
-        conn, run_id=run_id, node_id="asset.host-000", node_type="asset",
-        label="Asset: host-000", description="",
+        conn,
+        run_id=run_id,
+        node_id="asset.host-000",
+        node_type="asset",
+        label="Asset: host-000",
+        description="",
         location={"subnet": "10.0.1.0/24", "ip": "10.0.1.10"},
         created_at="2026-05-12T00:00:00Z",
     )
@@ -153,9 +174,12 @@ def test_ingest_findings_places_anomalies_in_asset_zone():
 
     decision_ids = [n for n in nodes if n.startswith("decision.")]
     assert "decision.apply_patch_applied" in decision_ids
-    edge_predicates = {(e["source"], e["relationship"], e["target"])
-                      for e in graph["edges"]}
+    edge_predicates = {
+        (e["source"], e["relationship"], e["target"]) for e in graph["edges"]
+    }
     assert ("finding.anomaly.host-000", "flags", "asset.host-000") in edge_predicates
     assert (
-        "finding.anomaly.host-000", "attributed_to", "causal.Asset_Criticality"
+        "finding.anomaly.host-000",
+        "attributed_to",
+        "causal.Asset_Criticality",
     ) in edge_predicates

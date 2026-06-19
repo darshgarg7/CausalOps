@@ -1,7 +1,7 @@
 """Tests for incremental Kafka-driven 5D graph ingestion (graph_5d_stream)."""
 
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from bus.events import ArtifactType, EventEnvelope
@@ -49,10 +49,10 @@ def test_stream_ingestion_builds_graph_with_real_event_times():
             ],
         )
 
-        t0 = datetime(2026, 6, 1, 19, 0, 0, tzinfo=timezone.utc)
-        t1 = datetime(2026, 6, 1, 19, 0, 5, tzinfo=timezone.utc)
-        t2 = datetime(2026, 6, 1, 19, 0, 10, tzinfo=timezone.utc)
-        t3 = datetime(2026, 6, 1, 19, 0, 15, tzinfo=timezone.utc)
+        t0 = datetime(2026, 6, 1, 19, 0, 0, tzinfo=UTC)
+        t1 = datetime(2026, 6, 1, 19, 0, 5, tzinfo=UTC)
+        t2 = datetime(2026, 6, 1, 19, 0, 10, tzinfo=UTC)
+        t3 = datetime(2026, 6, 1, 19, 0, 15, tzinfo=UTC)
 
         conn = connect_graph_db(graph_db)
         try:
@@ -87,7 +87,10 @@ def test_stream_ingestion_builds_graph_with_real_event_times():
                         {
                             "graph": {
                                 "nodes": [
-                                    {"id": "asset_criticality", "label": "Asset Criticality"}
+                                    {
+                                        "id": "asset_criticality",
+                                        "label": "Asset Criticality",
+                                    }
                                 ],
                                 "edges": [],
                             }
@@ -146,7 +149,7 @@ def test_stream_is_idempotent_on_replay():
             task_description="incident",
             evidence_records=[],
         )
-        t1 = datetime(2026, 6, 1, 19, 0, 5, tzinfo=timezone.utc)
+        t1 = datetime(2026, 6, 1, 19, 0, 5, tzinfo=UTC)
         env = _env(
             run_id,
             ArtifactType.AGENT_CONFIG,

@@ -139,5 +139,7 @@ def test_execute_run_with_mocked_nodes(store: RunStore, monkeypatch) -> None:
 
     persisted = store.get_run("run-coord-1")
     assert persisted.status == "completed"
-    assert persisted.phase == "reasoning"
+    assert persisted.phase == "policy_learning"
     assert persisted.children_barrier_met() is True
+    assert persisted.agent_evolution_report is not None
+    assert persisted.policy_optimization_report is not None
