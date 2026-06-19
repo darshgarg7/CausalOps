@@ -250,24 +250,26 @@ def _sanitize_graph(graph_def: dict[str, Any]) -> dict[str, Any]:
     graph_def["nodes"] = [dict(node) for node in graph_def.get("nodes", [])]
     graph_def["edges"] = [dict(edge) for edge in graph_def.get("edges", [])]
     graph_def["treatment_variable"] = clean_variable(
-        graph_def.get("treatment_variable", "treatment")
+        str(graph_def.get("treatment_variable") or "treatment")
     )
     graph_def["outcome_variable"] = clean_variable(
-        graph_def.get("outcome_variable", "outcome")
+        str(graph_def.get("outcome_variable") or "outcome")
     )
     graph_def["candidate_confounders"] = [
-        clean_variable(confounder)
+        clean_variable(str(confounder))
         for confounder in graph_def.get("candidate_confounders", [])
+        if confounder is not None
     ]
 
     for node in graph_def["nodes"]:
-        node["id"] = clean_variable(node.get("id", node.get("label", "node")))
+        node_val = node.get("id") or node.get("label") or "node"
+        node["id"] = clean_variable(str(node_val))
         node.setdefault("label", node["id"].replace("_", " "))
         node.setdefault("description", "")
 
     for edge in graph_def["edges"]:
-        edge["source"] = clean_variable(edge.get("source", ""))
-        edge["target"] = clean_variable(edge.get("target", ""))
+        edge["source"] = clean_variable(str(edge.get("source") or ""))
+        edge["target"] = clean_variable(str(edge.get("target") or ""))
         edge.setdefault("relationship", "")
         edge.setdefault("required_evidence", [])
         edge.setdefault("falsification_tests", [])
