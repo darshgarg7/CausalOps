@@ -1,8 +1,7 @@
 """Shared helpers for binding publish context inside graph nodes."""
 
-from __future__ import annotations
-
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 from bus.context import bind_run_context
 
