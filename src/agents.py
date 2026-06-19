@@ -11,6 +11,7 @@ import logging
 from typing import Any
 
 from langchain_core.prompts import ChatPromptTemplate
+from openai import ContentFilterFinishReasonError
 from pydantic import BaseModel
 
 
@@ -232,7 +233,10 @@ def child_agent_node(state: ChildState) -> dict[str, list[DecisionMemo]]:
         )
         logger.info("Child agent [%s] completed memo", state["persona"])
     except ContentFilterFinishReasonError:
-        logger.warning("Child agent [%s] blocked by content filter - using fallback memo",state["persona"])
+        logger.warning(
+            "Child agent [%s] blocked by content filter - using fallback memo",
+            state["persona"],
+        )
         publish_telemetry(
             agent_id=agent_id,
             tier="child",
@@ -243,6 +247,7 @@ def child_agent_node(state: ChildState) -> dict[str, list[DecisionMemo]]:
         memo = _fallback_memo(state, "blocked by azure content filter")
     except Exception as exc:
         error_name = type(exc).__name__
+
         if "ContentFilter" in error_name:
             message = f"Child [{state['persona']}] blocked by content filter: {exc}"
             logger.warning(message)
@@ -256,7 +261,9 @@ def child_agent_node(state: ChildState) -> dict[str, list[DecisionMemo]]:
             memo = _fallback_memo(state, "blocked by azure content filter")
         else:
             logger.error(
-                "Child agent [%s] failed unexpectedly: %s", state["persona"], exc
+                "Child agent [%s] failed unexpectedly: %s",
+                state["persona"],
+                exc,
             )
             memo = _fallback_memo(state, f"Unexpected error: {exc}")
 
