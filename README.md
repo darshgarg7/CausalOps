@@ -176,10 +176,9 @@ The Causal Architect performs a Semantic Intersection between the incident promp
 Create a root `.env` file:
 
 ```env
-AZURE_OPENAI_ENDPOINT=https://your-endpoint.openai.azure.com/
-AZURE_OPENAI_API_KEY=your-api-key
-AZURE_OPENAI_DEPLOYMENT=gpt-4o
-AZURE_OPENAI_API_VERSION=2024-08-01-preview
+GEMINI_API_KEY="..."
+GEMINI_BASE_URL="https://generativelanguage.googleapis.com/yoururlhere/"
+GEMINI_MODEL="pick your model here" #I'm a broke college kid so I use gemini-2.5-flash
 ```
 
 With Docker Compose, Kafka is enabled automatically via Redpanda:
