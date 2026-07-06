@@ -16,7 +16,7 @@ import os
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -36,6 +36,7 @@ from evidence_adapters import (
     normalize_incident_reports,
     normalize_sentinel_records,
 )
+from governance import payload_size_guard, run_admission_guard, run_slots
 from worker.consumer import run_spawn_consumer
 
 logging.basicConfig(level=logging.INFO)
@@ -214,14 +215,15 @@ async def _execute_run_background(
 ) -> None:
     """Run HiveMind in the background for async POST /run."""
 
-    try:
-        await run_hivemind(
-            task_description,
-            evidence_records=evidence_records,
-            run_id=run_id,
-        )
-    except Exception:
-        logger.exception("Background run failed for run_id=%s", run_id)
+    async with run_slots:
+        try:
+            await run_hivemind(
+                task_description,
+                evidence_records=evidence_records,
+                run_id=run_id,
+            )
+        except Exception:
+            logger.exception("Background run failed for run_id=%s", run_id)
 
 
 @app.get("/run/{run_id}")
@@ -364,7 +366,7 @@ async def ingest_run_5d_graph(run_id: str, request: Ingest5DRequest):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@app.post("/run", status_code=202)
+@app.post("/run", status_code=202, dependencies=[Depends(payload_size_guard), Depends(run_admission_guard)])
 async def enqueue_run(request: RunRequest):
     """Enqueue the full agent graph and return immediately."""
 
@@ -401,7 +403,7 @@ async def enqueue_run(request: RunRequest):
     )
 
 
-@app.post("/run/sync")
+@app.post("/run/sync", dependencies=[Depends(payload_size_guard), Depends(run_admission_guard)])
 async def run_engine_sync(request: RunRequest):
     """Blocking run endpoint retained for scripts and integration tests."""
 

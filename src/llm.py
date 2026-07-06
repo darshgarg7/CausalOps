@@ -6,6 +6,8 @@ import os
 
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
 
+from governance import BudgetCallbackHandler
+
 
 def get_llm(temperature: float = 0.0) -> ChatOpenAI | AzureChatOpenAI:
     """Retrieve the configured LLM client.
@@ -23,6 +25,7 @@ def get_llm(temperature: float = 0.0) -> ChatOpenAI | AzureChatOpenAI:
             base_url=base_url,
             model=model,
             temperature=temperature,
+            callbacks=[BudgetCallbackHandler()],
         )
 
     # Fallback to Azure OpenAI
@@ -32,4 +35,5 @@ def get_llm(temperature: float = 0.0) -> ChatOpenAI | AzureChatOpenAI:
         azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o"),
         api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2025-01-01-preview"),
         temperature=temperature,
+        callbacks=[BudgetCallbackHandler()],
     )
