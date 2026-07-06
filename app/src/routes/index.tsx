@@ -8,8 +8,7 @@ import { ExecutiveView } from "@/components/hivemind/ExecutiveView";
 import { EMPTY_SCENARIO, type ScenarioState } from "@/lib/scenario-builder";
 import { MetricsBar } from "@/components/hivemind/MetricsBar";
 import { StrategiesGrid } from "@/components/hivemind/StrategiesGrid";
-import { CausalGraphPanel } from "@/components/hivemind/CausalGraphPanel";
-import { SpatiotemporalKGPanel } from "@/components/hivemind/SpatiotemporalKGPanel";
+import { GraphWorkspace } from "@/components/hivemind/GraphWorkspace";
 import { ErrorPanel } from "@/components/hivemind/ErrorPanel";
 import { ExecutionStream } from "@/components/hivemind/ExecutionStream";
 import { CausalObservabilityPanel } from "@/components/hivemind/CausalObservabilityPanel";
@@ -18,7 +17,12 @@ import { RunHistoryDrawer } from "@/components/hivemind/RunHistoryDrawer";
 import { PresenterMode } from "@/components/hivemind/PresenterMode";
 import { executeWithProgress } from "@/lib/execution-simulator";
 import { SchemaValidationError, type SchemaIssue } from "@/lib/hivemind-schema";
-import type { ExecutionEvent, HistoryEntry, RunResponse } from "@/lib/hivemind-types";
+import type {
+  ExecutionEvent,
+  ExecutionMode,
+  HistoryEntry,
+  RunResponse,
+} from "@/lib/hivemind-types";
 import { useRunHistory } from "@/hooks/use-run-history";
 import { exportRunReport } from "@/lib/pdf-export";
 import type { CausalGraphHandle } from "@/components/hivemind/CausalGraph";
@@ -27,6 +31,16 @@ import { computeDerivedMetrics } from "@/lib/derived-metrics";
 export const Route = createFileRoute("/")({
   component: Index,
 });
+
+declare global {
+  interface Window {
+    __HIVEMIND_VISUAL_RESULT__?: {
+      historyId?: string;
+      taskFull?: string;
+      payload: RunResponse;
+    };
+  }
+}
 
 function Index() {
   const [loading, setLoading] = useState(false);
@@ -47,9 +61,22 @@ function Index() {
   const graphRef = useRef<CausalGraphHandle>(null);
   const { history, add, remove, clear } = useRunHistory();
 
+  useEffect(() => {
+    if (import.meta.env.VITE_HIVEMIND_VISUAL_TEST !== "1") return;
+    const fixture = window.__HIVEMIND_VISUAL_RESULT__;
+    if (!fixture) return;
+
+    setResult(fixture.payload);
+    setActiveHistoryId(fixture.historyId ?? null);
+    setActiveTask(fixture.taskFull ?? "");
+    setErrorMsg(null);
+    setSchemaIssues(null);
+    setEvents([]);
+  }, []);
+
   const handleRun = async (
     taskDescription: string,
-    meta?: { fields: ScenarioState; ttps: string[] },
+    meta?: { fields: ScenarioState; ttps: string[]; executionMode?: ExecutionMode },
   ) => {
     if (meta) {
       setScenarioFields(meta.fields);
@@ -62,9 +89,13 @@ function Index() {
     setEvents([]);
     setActiveTask(taskDescription);
     try {
-      const data = await executeWithProgress(taskDescription, (e) => {
-        setEvents((prev) => [...prev, e]);
-      });
+      const data = await executeWithProgress(
+        taskDescription,
+        (e) => {
+          setEvents((prev) => [...prev, e]);
+        },
+        { executionMode: meta?.executionMode ?? "standard" },
+      );
       setResult(data);
       const entry = add(taskDescription, data);
       setActiveHistoryId(entry.id);
@@ -150,7 +181,7 @@ function Index() {
 
   const currentEntry: HistoryEntry | null =
     activeHistoryId != null ? (history.find((h) => h.id === activeHistoryId) ?? null) : null;
-  const showStream = events.length > 0;
+  const showStream = loading || events.length > 0;
   const derived = result ? computeDerivedMetrics(result) : null;
   const observability = useMemo(
     () => (result ? buildObservabilityTrace(scenarioFields, scenarioTtps, result) : null),
@@ -284,7 +315,7 @@ function Index() {
         {mode === "analyst" && !result && !errorMsg && !showStream && (
           <div className="glass flex items-center justify-center gap-3 rounded-2xl px-6 py-12 text-sm text-muted-foreground">
             <Radar className="h-4 w-4 text-[color:var(--neon-cyan)]/70" aria-hidden />
-            Build a scenario above and Run to see strategies, causal graph, and impact.
+            Build a scenario above and Run to see strategies, graphs, and impact.
           </div>
         )}
 
@@ -292,12 +323,12 @@ function Index() {
           <div className="space-y-6">
             <MetricsBar impact={result.impact} runId={result.run_id} derived={derived!} />
             <StrategiesGrid ranked={derived!.ranked} />
-            <CausalGraphPanel
+            <GraphWorkspace
               ref={graphRef}
               graph={result.causal_graph ?? { nodes: [], edges: [] }}
+              runId={result.run_id}
               edgeAnnotations={observability?.edges}
             />
-            <SpatiotemporalKGPanel runId={result.run_id} />
             {observability && <CausalObservabilityPanel trace={observability} />}
           </div>
         )}

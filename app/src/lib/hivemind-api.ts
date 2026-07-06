@@ -1,6 +1,7 @@
 import type {
   EnqueueResult,
   ExecutionEvent,
+  ExecutionMode,
   RunEnqueueResponse,
   RunResponse,
   RunStatusResponse,
@@ -10,7 +11,7 @@ import { parseRunResponse, SchemaValidationError } from "./hivemind-schema";
 const DEFAULT_ENDPOINT = "http://localhost:8000/run";
 const STORAGE_KEY = "hivemind:apiUrl";
 const ENQUEUE_TIMEOUT_MS = 30_000;
-const RUN_POLL_TIMEOUT_MS = 600_000;
+export const RUN_POLL_TIMEOUT_MS = 1_800_000;
 const RUN_POLL_INTERVAL_MS = 1_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -21,7 +22,7 @@ function resolveApiEndpoint(url: string): string {
   const trimmed = url.trim().replace(/\/+$/, "");
   if (!trimmed) return DEFAULT_ENDPOINT;
 
-  // Relative "/run" always targets the FastAPI backend in local compose.
+  // Relative "/run" is the product API, not a frontend route.
   if (trimmed === "/run") return DEFAULT_ENDPOINT;
 
   const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
@@ -31,7 +32,7 @@ function resolveApiEndpoint(url: string): string {
     try {
       const target = new URL(withPath);
       const ui = new URL(window.location.href);
-      // Avoid the UI dev server's mock POST /run route on port 8080.
+      // The frontend origin is never the API origin in the blessed local stack.
       if (target.origin === ui.origin) {
         return DEFAULT_ENDPOINT;
       }
@@ -139,12 +140,13 @@ export function streamRunEvents(
 
 export async function enqueueRun(
   taskDescription: string,
-  options?: { runId?: string },
+  options?: { runId?: string; executionMode?: ExecutionMode },
 ): Promise<EnqueueResult> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), ENQUEUE_TIMEOUT_MS);
   const endpoint = getApiUrl();
   const runId = options?.runId;
+  const executionMode = options?.executionMode ?? "standard";
 
   try {
     const res = await fetch(endpoint, {
@@ -155,6 +157,7 @@ export async function enqueueRun(
       },
       body: JSON.stringify({
         task_description: taskDescription,
+        execution_mode: executionMode,
         ...(runId ? { run_id: runId } : {}),
       }),
       signal: controller.signal,
@@ -232,10 +235,13 @@ export async function fetchRunResult(runId: string): Promise<RunResponse> {
 /** Convenience wrapper for callers that only need the final artifact. */
 export async function runCausalEngine(
   taskDescription: string,
-  options?: { runId?: string },
+  options?: { runId?: string; executionMode?: ExecutionMode },
 ): Promise<RunResponse> {
   const runId = options?.runId ?? newRunId();
-  const enqueued = await enqueueRun(taskDescription, { runId });
+  const enqueued = await enqueueRun(taskDescription, {
+    runId,
+    executionMode: options?.executionMode,
+  });
   if (enqueued.mode === "sync") {
     return enqueued.artifact;
   }

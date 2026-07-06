@@ -1,9 +1,11 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { Loader2, Sparkles, Terminal, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import type { ExecutionMode } from "@/lib/hivemind-types";
 import {
   EMPTY_SCENARIO,
   FIELDS,
@@ -32,7 +34,10 @@ export interface ScenarioBuilderHandle {
 
 interface Props {
   loading: boolean;
-  onSubmit: (composedPrompt: string, meta: { fields: ScenarioState; ttps: string[] }) => void;
+  onSubmit: (
+    composedPrompt: string,
+    meta: { fields: ScenarioState; ttps: string[]; executionMode: ExecutionMode },
+  ) => void;
 }
 
 export const ScenarioBuilder = forwardRef<ScenarioBuilderHandle, Props>(function ScenarioBuilder(
@@ -44,6 +49,7 @@ export const ScenarioBuilder = forwardRef<ScenarioBuilderHandle, Props>(function
   const [confidence, setConfidence] = useState<ConfidenceState>({});
   const [ttps, setTtps] = useState<string[]>([]);
   const [autoDecompose, setAutoDecompose] = useState(true);
+  const [executionMode, setExecutionMode] = useState<ExecutionMode>("standard");
   const [libraryOpen, setLibraryOpen] = useState(true);
   const [forceOpenField, setForceOpenField] = useState<FieldKey | null>(null);
   const fieldRefs = useRef<Partial<Record<FieldKey, HTMLDivElement | null>>>({});
@@ -126,7 +132,7 @@ export const ScenarioBuilder = forwardRef<ScenarioBuilderHandle, Props>(function
       toast.error("Scenario too thin — fill at least asset + objective.");
       return;
     }
-    onSubmit(composed, { fields, ttps });
+    onSubmit(composed, { fields, ttps, executionMode });
   };
 
   const jumpToField = (key: string) => {
@@ -313,41 +319,76 @@ export const ScenarioBuilder = forwardRef<ScenarioBuilderHandle, Props>(function
         {/* Export + Run */}
         <div className="flex flex-col gap-3 border-t border-white/5 pt-4 sm:flex-row sm:items-center sm:justify-between">
           <ExportPanel state={fields} ttpIds={ttps} />
-          <Button
-            onClick={handleSubmit}
-            disabled={loading || !validation.canRun}
-            size="lg"
-            title={
-              !validation.canRun
-                ? `Resolve ${validation.errors} blocker${validation.errors === 1 ? "" : "s"} in pre-flight checklist`
-                : undefined
-            }
-            className={cn(
-              "group relative overflow-hidden rounded-xl px-6 py-5 text-sm font-semibold uppercase tracking-wider",
-              "bg-gradient-to-r from-[color:var(--neon-cyan)] via-[color:var(--neon-cyan)] to-[color:var(--neon-violet)]",
-              "text-[color:oklch(0.12_0.03_260)] hover:opacity-95",
-              !loading && validation.canRun && "animate-pulse-glow",
-              (loading || !validation.canRun) && "opacity-60",
-              !validation.canRun && "cursor-not-allowed",
-            )}
-          >
-            {loading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
-                Executing Causal Loop…
-              </>
-            ) : !validation.canRun ? (
-              <>
-                <Sparkles className="mr-2 h-4 w-4" aria-hidden />
-                {validation.errors} blocker{validation.errors === 1 ? "" : "s"} — resolve to run
-              </>
-            ) : (
-              <>
-                <Sparkles className="mr-2 h-4 w-4" aria-hidden />
-                Initialize Causal Execution
-              </>
-            )}
-          </Button>
+          <div className="flex flex-col gap-3 sm:items-end">
+            <label className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+              <span
+                className={cn(
+                  "rounded border px-2 py-1",
+                  executionMode === "standard"
+                    ? "border-[color:var(--neon-cyan)]/30 text-[color:var(--neon-cyan)]"
+                    : "border-white/10",
+                )}
+                title="Standard mode: fast triage with a compact specialist swarm."
+              >
+                Standard
+              </span>
+              <Switch
+                checked={executionMode === "deep"}
+                onCheckedChange={(checked) => setExecutionMode(checked ? "deep" : "standard")}
+                disabled={loading}
+                aria-label="Toggle Deep Mode"
+                className="data-[state=checked]:bg-[color:var(--neon-violet)] data-[state=unchecked]:bg-[color:var(--neon-cyan)]/30"
+              />
+              <span
+                className={cn(
+                  "rounded border px-2 py-1",
+                  executionMode === "deep"
+                    ? "border-[color:var(--neon-violet)]/40 text-[color:var(--neon-violet)]"
+                    : "border-white/10",
+                )}
+                title="Deep mode: full swarm, LLM evaluation, causal synthesis, and policy learning."
+              >
+                Deep Mode
+              </span>
+            </label>
+            <Button
+              onClick={handleSubmit}
+              disabled={loading || !validation.canRun}
+              size="lg"
+              title={
+                !validation.canRun
+                  ? `Resolve ${validation.errors} blocker${validation.errors === 1 ? "" : "s"} in pre-flight checklist`
+                  : undefined
+              }
+              className={cn(
+                "group relative overflow-hidden rounded-xl px-6 py-5 text-sm font-semibold uppercase tracking-wider",
+                "bg-gradient-to-r from-[color:var(--neon-cyan)] via-[color:var(--neon-cyan)] to-[color:var(--neon-violet)]",
+                "text-[color:oklch(0.12_0.03_260)] hover:opacity-95",
+                !loading && validation.canRun && "animate-pulse-glow",
+                (loading || !validation.canRun) && "opacity-60",
+                !validation.canRun && "cursor-not-allowed",
+              )}
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+                  {executionMode === "deep" ? "Executing Deep Loop..." : "Executing Fast Loop..."}
+                </>
+              ) : !validation.canRun ? (
+                <>
+                  <Sparkles className="mr-2 h-4 w-4" aria-hidden />
+                  {validation.errors} blocker{validation.errors === 1 ? "" : "s"} - resolve to run
+                </>
+              ) : (
+                <>
+                  <Sparkles className="mr-2 h-4 w-4" aria-hidden />
+                  {executionMode === "deep"
+                    ? "Initialize Deep Execution"
+                    : "Initialize Fast Execution"}
+                </>
+              )}
+            </Button>
+          </div>
         </div>
       </section>
 
