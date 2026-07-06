@@ -176,13 +176,45 @@ The Causal Architect performs a Semantic Intersection between the incident promp
 Create a root `.env` file:
 
 ```env
-GEMINI_API_KEY="..." # Get your API Key here: https://aistudio.google.com/u/1/api-keys
-GEMINI_BASE_URL="https://generativelanguage.googleapis.com/v1beta/openai/"
-GEMINI_MODEL="gemini-2.5-flash"
-
-# To use the high-reasoning model:
-# GEMINI_MODEL="gemini-2.5-pro"
+# Generate a fresh key at https://build.nvidia.com/
+NVIDIA_API_KEY="nvapi-..."
+NVIDIA_MODEL="nvidia/nemotron-3-ultra-550b-a55b"
+NVIDIA_PROFILE=balanced
+NVIDIA_TOP_P=0.95
+NVIDIA_MAX_TOKENS=1536
+NVIDIA_REASONING_EFFORT=medium
+NVIDIA_REASONING_BUDGET=1024
+NVIDIA_TIMEOUT=240
+HIVEMIND_SPAWN_CONCURRENCY=3
+HIVEMIND_BARRIER_TIMEOUT_S=1800
+HIVEMIND_KAFKA_MAX_POLL_INTERVAL_MS=1800000
 ```
+
+`NVIDIA_API_KEY` takes precedence over the legacy `GEMINI_*` and `OPENAI_*`
+fallback settings. Keep `NVIDIA_MAX_TOKENS` and `NVIDIA_REASONING_BUDGET` modest
+for normal runs; very high values such as `16384` are useful for single-call
+experiments but too slow across the full agent pipeline.
+Temperature is intentionally controlled by the LangChain chains in code: agent
+and evaluator calls use some creativity, while causal synthesis stays
+deterministic.
+Product execution modes are explicit:
+
+- **Standard** is the default. It runs a compact specialist swarm, local memo
+  ranking, evidence-gated causal fallback, and the estimator path. Use this for
+  fast triage and normal UI demos.
+- **Deep Mode** runs the full swarm, LLM evaluator, LLM causal synthesis and
+  refutation, evolution, and policy learning. Use it when quality matters more
+  than runtime.
+
+The NVIDIA profile controls model-side cost within those product modes. For
+fast smoke tests, set `NVIDIA_PROFILE=fast`, `NVIDIA_REASONING_EFFORT=none`,
+`NVIDIA_MAX_TOKENS=1024`, and `NVIDIA_REASONING_BUDGET=0`. For deeper provider
+reasoning, use `NVIDIA_PROFILE=deep` only when you can tolerate longer runs.
+Parent and child agents are dispatched with bounded concurrency
+(`HIVEMIND_SPAWN_CONCURRENCY`, default `3`), so memo quality stays the same but
+the six-child phase no longer waits on one memo at a time. Lower it to `1` if a
+provider starts rate-limiting; raise it cautiously if your endpoint has room.
+Long runs have a 30-minute backend barrier and frontend wait window by default.
 
 With Docker Compose, Kafka is enabled automatically via Redpanda:
 
@@ -198,8 +230,11 @@ Compose runs three backend processes: **api** (coordinator + SSE, no spawn consu
 | Env var | Default (compose) | Purpose |
 |---------|-------------------|---------|
 | `HIVEMIND_ENABLE_SPAWN_WORKER` | `0` on api, `1` on worker | In-process spawn consumer in api when `1` |
+| `HIVEMIND_SPAWN_CONCURRENCY` | `3` | Max parent/child spawn commands processed at once |
 | `HIVEMIND_SPAWN_MAX_RETRIES` | `2` | Dispatch retries before DLQ |
 | `HIVEMIND_SPAWN_RETRY_BACKOFF_MS` | `1000` | Delay between spawn retries |
+| `HIVEMIND_BARRIER_TIMEOUT_S` | `1800` | Coordinator wait for parent/child barriers |
+| `HIVEMIND_KAFKA_MAX_POLL_INTERVAL_MS` | `1800000` | Worker poll window for long LLM calls |
 | `HIVEMIND_DATA_DIR` | repo-root `data/` | Run artifacts, run store, and 5D graph SQLite files |
 
 For single-process local dev without the worker container, set `HIVEMIND_ENABLE_SPAWN_WORKER=1` on the api service.
@@ -219,10 +254,10 @@ chmod +x scripts/smoke_kafka_bus.sh
 
 Runs bus unit tests, checks `/health`, and lists Redpanda topics when compose is up.
 
-Start the full stack:
+Start the full stack through the blessed local dev path:
 
 ```bash
-docker-compose up --build
+./scripts/dev-compose.sh
 ```
 
 Open:
@@ -234,8 +269,14 @@ Open:
 Stop it:
 
 ```bash
-docker-compose down
+docker compose down
 ```
+
+That stack is the supported local shape: frontend on port 8080, FastAPI on port
+8000, a separate worker, and Redpanda for the event bus. Running the frontend by
+itself is useful for isolated UI work, but it is not the product execution path
+because live progress, async completion, and 5D KG reads depend on the API and
+worker.
 
 ---
 
