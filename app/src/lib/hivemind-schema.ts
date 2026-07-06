@@ -12,17 +12,23 @@ export const StrategySchema = z.object({
 export const CausalNodeSchema = z.object({
   id: z.string().min(1),
   label: z.string(),
+  description: z.string().optional(),
 });
 
 export const CausalEdgeSchema = z.object({
   source: z.string().min(1),
   target: z.string().min(1),
   relationship: z.string(),
+  required_evidence: z.array(z.string()).optional(),
+  falsification_tests: z.array(z.string()).optional(),
 });
 
 export const CausalGraphSchema = z.object({
   nodes: z.array(CausalNodeSchema),
   edges: z.array(CausalEdgeSchema),
+  treatment_variable: z.string().optional(),
+  outcome_variable: z.string().optional(),
+  candidate_confounders: z.array(z.string()).optional(),
 });
 
 export const ImpactSchema = z.object({
@@ -38,6 +44,7 @@ export const ImpactSchema = z.object({
 
 export const RunResponseSchema = z.object({
   run_id: z.string().min(1),
+  execution_mode: z.enum(["standard", "deep"]).optional(),
   strategies: z.array(StrategySchema),
   ranked_strategies: z.array(z.unknown()).optional(),
   final_recommendation: z.string().nullable().optional(),
