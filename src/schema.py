@@ -242,6 +242,8 @@ class CausalEstimateReport(BaseModel):
 # Agent schemas
 # ---------------------------------------------------------------------------
 
+ExecutionMode = Literal["standard", "deep"]
+
 
 class AgentPolicy(BaseModel):
     """Compact policy prior attached to an evolved agent configuration."""
@@ -302,6 +304,7 @@ class GraphState(TypedDict):
     task_description: str
     run_id: str
     correlation_id: str
+    execution_mode: ExecutionMode
 
     parent_configs: list[AgentConfig]
     child_configs: Annotated[list[ChildConfig], operator.add]
@@ -333,6 +336,7 @@ class ParentState(TypedDict):
     persona: str
     focus_objective: str
     policy: NotRequired[dict[str, Any] | None]
+    execution_mode: NotRequired[ExecutionMode]
 
 
 class ChildState(TypedDict):
@@ -345,3 +349,4 @@ class ChildState(TypedDict):
     persona: str
     focus_objective: str
     policy: NotRequired[dict[str, Any] | None]
+    execution_mode: NotRequired[ExecutionMode]

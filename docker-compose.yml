@@ -36,6 +36,7 @@ services:
       HIVEMIND_ALLOWED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
       KAFKA_BOOTSTRAP: redpanda:9092
       HIVEMIND_ENABLE_SPAWN_WORKER: "0"
+      HIVEMIND_BARRIER_TIMEOUT_S: "1800"
     volumes:
       - ./data:/app/data
     depends_on:
@@ -57,6 +58,8 @@ services:
       HIVEMIND_ENABLE_SPAWN_WORKER: "1"
       HIVEMIND_SPAWN_MAX_RETRIES: "2"
       HIVEMIND_SPAWN_RETRY_BACKOFF_MS: "1000"
+      HIVEMIND_SPAWN_CONCURRENCY: "3"
+      HIVEMIND_KAFKA_MAX_POLL_INTERVAL_MS: "1800000"
     volumes:
       - ./data:/app/data
     depends_on:

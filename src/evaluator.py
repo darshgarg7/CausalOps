@@ -136,6 +136,11 @@ def evaluate_memos_node(state: GraphState):
                 "memos_text": memos_text,
             }
         )
+        if result is None:
+            raise ValueError("structured evaluator output was empty")
+        if isinstance(result, dict):
+            result = RankedStrategies(**result)
+        ranked_strategies = result.model_dump()
     except Exception as exc:
         logger.exception("Evaluator LLM call failed")
         publish_telemetry(
@@ -150,10 +155,6 @@ def evaluate_memos_node(state: GraphState):
             "final_recommendation": None,
             "evaluator_error": str(exc),
         }
-
-    if isinstance(result, dict):
-        result = RankedStrategies(**result)
-    ranked_strategies = result.model_dump()
 
     publish_artifact(
         agent_id="evaluator",

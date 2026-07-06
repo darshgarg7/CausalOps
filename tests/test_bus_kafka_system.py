@@ -24,9 +24,9 @@ from bus.producer import (
 )
 from bus.serde import bytes_to_envelope
 from bus.topics import _ALL_TOPICS, TOPIC_SPAWN
-from coordinator.spawn import build_parent_command
+from coordinator.spawn import build_parent_command, enqueue_child_tasks
 from coordinator.store import RunStore
-from schema import AgentConfig
+from schema import AgentConfig, ChildConfig
 from worker.submit import submit_spawn_envelope
 
 
@@ -135,6 +135,42 @@ def test_submit_spawn_envelope_fails_fast_when_kafka_publish_fails(
         dispatch.assert_not_called()
 
     asyncio.run(run())
+
+
+def test_enqueue_child_tasks_uses_bounded_concurrency(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    record = RunStore(tmp_path / "runs.db").create_run(
+        run_id="run-concurrent-submit",
+        correlation_id="run-concurrent-submit",
+        task_description="Investigate lateral movement in finance segment",
+    )
+    record.child_configs = [
+        ChildConfig(
+            parent_persona="Parent",
+            persona=f"Child {index}",
+            focus_objective="Inspect one technical slice",
+        )
+        for index in range(4)
+    ]
+
+    active = 0
+    max_active = 0
+
+    async def fake_submit(_envelope) -> None:
+        nonlocal active, max_active
+        active += 1
+        max_active = max(max_active, active)
+        await asyncio.sleep(0.01)
+        active -= 1
+
+    monkeypatch.setenv("HIVEMIND_SPAWN_CONCURRENCY", "2")
+    monkeypatch.setattr("worker.submit.submit_spawn_envelope", fake_submit)
+
+    asyncio.run(enqueue_child_tasks(record))
+
+    assert max_active == 2
 
 
 async def _broker_reachable(bootstrap: str) -> bool:
