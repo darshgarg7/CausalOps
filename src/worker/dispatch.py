@@ -69,6 +69,7 @@ async def _dispatch_parent(
             "persona": str(payload["persona"]),
             "focus_objective": str(payload["focus_objective"]),
             "policy": payload.get("policy"),
+            "execution_mode": str(payload.get("execution_mode", record.execution_mode)),
         }
         update = await asyncio.to_thread(parent_agent_node, parent_state)
         configs = list(update.get("child_configs", []))
@@ -113,6 +114,7 @@ async def _dispatch_child(
             "persona": str(payload["persona"]),
             "focus_objective": str(payload["focus_objective"]),
             "policy": payload.get("policy"),
+            "execution_mode": str(payload.get("execution_mode", record.execution_mode)),
         }
         update = await asyncio.to_thread(child_agent_node, child_state)
         memos = list(update.get("memos", []))

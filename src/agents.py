@@ -75,6 +75,8 @@ def grand_orchestrator_node(state: GraphState) -> dict[str, list[AgentConfig]]:
     result = grand_orchestrator_chain.invoke(
         {"task_description": state["task_description"]}
     )
+    if result is None:
+        raise RuntimeError("Grand orchestrator returned no structured parent configs")
     if isinstance(result, dict):
         result = ParentConfigsOutput(**result)
     logger.info("Spawned %s parent agents", len(result.parent_configs))
@@ -144,6 +146,10 @@ def parent_agent_node(state: ParentState) -> dict[str, list[ChildConfig]]:
             "policy_context": _policy_context(state.get("policy")),
         }
     )
+    if result is None:
+        raise RuntimeError(
+            f"Parent agent [{state['persona']}] returned no child configs"
+        )
     if isinstance(result, dict):
         result = ChildConfigsOutput(**result)
 
@@ -186,6 +192,7 @@ child_agent_prompt = ChatPromptTemplate.from_messages(
             "Evidence needs must name concrete telemetry, logs, CVE feeds, "
             "incident-report facts, or analyst observations that would "
             "confirm or falsify your strategy.\n\n"
+            "RUNTIME PROFILE:\n{runtime_guidance}\n\n"
             "EVOLVED POLICY PRIOR:\n{policy_context}",
         ),
         ("user", "INCIDENT:\n{task_description}"),
@@ -228,9 +235,14 @@ def child_agent_node(state: ChildState) -> dict[str, list[DecisionMemo]]:
                 "parent_persona": state["parent_persona"],
                 "focus_objective": state["focus_objective"],
                 "task_description": state["task_description"],
+                "runtime_guidance": _runtime_guidance(
+                    state.get("execution_mode", "standard")
+                ),
                 "policy_context": _policy_context(state.get("policy")),
             }
         )
+        if memo is None:
+            raise ValueError("structured memo output was empty")
         logger.info("Child agent [%s] completed memo", state["persona"])
     except ContentFilterFinishReasonError:
         logger.warning(
@@ -313,4 +325,16 @@ def _policy_context(policy: Any) -> str:
     return (
         f"policy_id={policy_id}; prioritize {priority}; "
         f"top_traits={top_text or 'none'}."
+    )
+
+
+def _runtime_guidance(execution_mode: str) -> str:
+    if execution_mode == "deep":
+        return (
+            "Deep mode: provide richer reasoning and broader evidence needs; "
+            "include nuanced trade-offs."
+        )
+    return (
+        "Standard mode: be concise and decision-ready. Use short field values, "
+        "2-3 risks, 2-3 assumptions, and 2-3 concrete evidence needs."
     )

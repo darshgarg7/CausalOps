@@ -9,6 +9,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from bus.events import ArtifactType, EventEnvelope
+from bus.serde import envelope_to_bytes
 from bus.topics import TOPIC_DLQ, TOPIC_SPAWN
 from coordinator.spawn import build_parent_command
 from coordinator.store import RunStore, set_run_store
@@ -79,6 +81,47 @@ def test_spawn_dispatch_failure_publishes_dlq(
 
 def test_dlq_topic_constant() -> None:
     assert TOPIC_DLQ == "hivemind.dlq"
+
+
+def test_spawn_batch_uses_configured_concurrency(monkeypatch) -> None:
+    active = 0
+    max_active = 0
+
+    async def fake_dispatch(_envelope):
+        nonlocal active, max_active
+        active += 1
+        max_active = max(max_active, active)
+        await asyncio.sleep(0.01)
+        active -= 1
+
+    messages = [
+        SimpleNamespace(
+            value=envelope_to_bytes(
+                EventEnvelope(
+                    run_id="run-batch",
+                    correlation_id="run-batch",
+                    agent_id="coordinator",
+                    tier="control",
+                    artifact_type=ArtifactType.RUN_CHILD,
+                    payload={"task_id": f"c{index}"},
+                )
+            ),
+            key=b"run-batch",
+        )
+        for index in range(4)
+    ]
+
+    mock_consumer = AsyncMock()
+    monkeypatch.setenv("HIVEMIND_SPAWN_CONCURRENCY", "2")
+    monkeypatch.setattr(spawn_consumer, "dispatch_spawn_envelope", fake_dispatch)
+
+    async def run() -> None:
+        await spawn_consumer._process_spawn_batch(mock_consumer, messages)
+
+    asyncio.run(run())
+
+    assert max_active == 2
+    mock_consumer.commit.assert_awaited_once()
 
 
 def test_spawn_consumer_reads_existing_unclaimed_work(monkeypatch) -> None:

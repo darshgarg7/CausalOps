@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -132,3 +133,35 @@ def test_try_claim_idempotency_is_atomic(store: RunStore) -> None:
     assert store.try_claim_idempotency("run-worker-claim", key) is False
     store.release_idempotency_claim("run-worker-claim", key)
     assert store.try_claim_idempotency("run-worker-claim", key) is True
+
+
+def test_parallel_child_store_updates_do_not_drop_memos(store: RunStore) -> None:
+    record = store.create_run(
+        run_id="run-worker-parallel",
+        correlation_id="run-worker-parallel",
+        task_description="Investigate lateral movement in finance segment",
+    )
+    record.expected_child_count = 4
+    store.save(record)
+
+    def complete_child(index: int) -> None:
+        stale = store.get_run("run-worker-parallel")
+        memo = DecisionMemo(
+            perspective=f"Child {index}",
+            strategy="Preserve evidence and contain blast radius",
+            risks=["Race condition regression"],
+        )
+        store.append_memo(stale, memo)
+        store.mark_child_complete(stale)
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        list(executor.map(complete_child, range(4)))
+
+    finished = store.get_run("run-worker-parallel")
+    assert finished.completed_child_count == 4
+    assert sorted(memo.perspective for memo in finished.memos) == [
+        "Child 0",
+        "Child 1",
+        "Child 2",
+        "Child 3",
+    ]
