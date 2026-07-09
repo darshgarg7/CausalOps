@@ -60,6 +60,7 @@ class RunRecord:
     reasoning_report: dict[str, Any] | None = None
     agent_evolution_report: dict[str, Any] | None = None
     policy_optimization_report: dict[str, Any] | None = None
+    memory_context: list[dict[str, Any]] | None = None
     expected_parent_count: int = 0
     completed_parent_count: int = 0
     expected_child_count: int = 0
@@ -90,6 +91,7 @@ class RunRecord:
             "reasoning_report": self.reasoning_report,
             "agent_evolution_report": self.agent_evolution_report,
             "policy_optimization_report": self.policy_optimization_report,
+            "memory_context": self.memory_context,
         }
 
     def apply_node_update(self, update: dict[str, Any]) -> None:
@@ -115,6 +117,7 @@ class RunRecord:
             "reasoning_report",
             "agent_evolution_report",
             "policy_optimization_report",
+            "memory_context",
         ):
             if key in update:
                 setattr(self, key, update[key])
@@ -527,6 +530,7 @@ def _record_to_json(record: RunRecord) -> dict[str, Any]:
         "reasoning_report": record.reasoning_report,
         "agent_evolution_report": record.agent_evolution_report,
         "policy_optimization_report": record.policy_optimization_report,
+        "memory_context": record.memory_context,
         "expected_parent_count": record.expected_parent_count,
         "completed_parent_count": record.completed_parent_count,
         "expected_child_count": record.expected_child_count,
@@ -564,6 +568,7 @@ def _record_from_json(data: dict[str, Any]) -> RunRecord:
         reasoning_report=data.get("reasoning_report"),
         agent_evolution_report=data.get("agent_evolution_report"),
         policy_optimization_report=data.get("policy_optimization_report"),
+        memory_context=data.get("memory_context"),
         expected_parent_count=int(data.get("expected_parent_count", 0)),
         completed_parent_count=int(data.get("completed_parent_count", 0)),
         expected_child_count=int(data.get("expected_child_count", 0)),

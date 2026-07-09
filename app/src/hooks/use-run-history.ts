@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { HistoryEntry, RunResponse } from "@/lib/hivemind-types";
+import type { HistoryEntry, RunResponse } from "@/lib/causalops-types";
 import {
   HISTORY_STORAGE_KEY,
   appendHistory,

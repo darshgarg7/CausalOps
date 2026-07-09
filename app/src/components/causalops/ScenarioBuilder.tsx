@@ -5,7 +5,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import type { ExecutionMode } from "@/lib/hivemind-types";
+import type { ExecutionMode } from "@/lib/causalops-types";
 import {
   EMPTY_SCENARIO,
   FIELDS,

@@ -9,7 +9,7 @@ import {
 } from "react";
 import ForceGraph2D, { type ForceGraphMethods } from "react-force-graph-2d";
 import { Crosshair, Maximize2, Minimize2, RotateCcw, Tag, TagsIcon } from "lucide-react";
-import type { CausalGraph as CausalGraphData, CausalNode, CausalEdge } from "@/lib/hivemind-types";
+import type { CausalGraph as CausalGraphData, CausalNode, CausalEdge } from "@/lib/causalops-types";
 import type { EdgeAnnotation } from "@/lib/agent-runtime";
 import { cn } from "@/lib/utils";
 

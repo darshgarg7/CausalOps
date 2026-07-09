@@ -2,7 +2,7 @@ import { forwardRef } from "react";
 import { Boxes, GitBranch, Network } from "lucide-react";
 
 import type { EdgeAnnotation } from "@/lib/agent-runtime";
-import type { CausalGraph } from "@/lib/hivemind-types";
+import type { CausalGraph } from "@/lib/causalops-types";
 import { cn } from "@/lib/utils";
 import { CausalGraphPanel } from "./CausalGraphPanel";
 import type { CausalGraphHandle } from "./CausalGraph";

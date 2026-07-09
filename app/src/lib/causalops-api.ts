@@ -5,11 +5,11 @@ import type {
   RunEnqueueResponse,
   RunResponse,
   RunStatusResponse,
-} from "./hivemind-types";
-import { parseRunResponse, SchemaValidationError } from "./hivemind-schema";
+} from "./causalops-types";
+import { parseRunResponse, SchemaValidationError } from "./causalops-schema";
 
 const DEFAULT_ENDPOINT = "http://localhost:8000/run";
-const STORAGE_KEY = "hivemind:apiUrl";
+const STORAGE_KEY = "causalops:apiUrl";
 const ENQUEUE_TIMEOUT_MS = 30_000;
 export const RUN_POLL_TIMEOUT_MS = 1_800_000;
 const RUN_POLL_INTERVAL_MS = 1_000;
@@ -193,7 +193,7 @@ export async function enqueueRun(
     }
     if (err instanceof TypeError) {
       throw new Error(
-        `Could not reach the HiveMind backend at ${endpoint}. Check the API is running on port 8000.`,
+        `Could not reach the CausalOps backend at ${endpoint}. Check the API is running on port 8000.`,
       );
     }
     throw err;
@@ -267,4 +267,4 @@ export async function fetch5DGraph(runId: string): Promise<Graph5DResponse> {
 }
 
 export { SchemaValidationError, parseRunResponse };
-export { extractRunArtifact } from "./hivemind-schema";
+export { extractRunArtifact } from "./causalops-schema";

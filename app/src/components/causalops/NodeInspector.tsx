@@ -1,5 +1,5 @@
 import { ArrowRight, GitBranch, Hash, X } from "lucide-react";
-import type { CausalEdge, CausalNode, CausalGraph } from "@/lib/hivemind-types";
+import type { CausalEdge, CausalNode, CausalGraph } from "@/lib/causalops-types";
 
 interface NodeInspectorProps {
   node: CausalNode | null;

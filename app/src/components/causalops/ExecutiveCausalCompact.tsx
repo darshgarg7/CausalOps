@@ -8,7 +8,7 @@ import {
   type EdgeAnnotation,
   type ObservabilityTrace,
 } from "@/lib/agent-runtime";
-import type { CausalGraph } from "@/lib/hivemind-types";
+import type { CausalGraph } from "@/lib/causalops-types";
 import { cn } from "@/lib/utils";
 
 interface Props {

@@ -1,4 +1,4 @@
-import type { CausalGraph, Impact, RunResponse, Strategy } from "./hivemind-types";
+import type { CausalGraph, Impact, RunResponse, Strategy } from "./causalops-types";
 
 export interface ScoredStrategy {
   strategy: Strategy;

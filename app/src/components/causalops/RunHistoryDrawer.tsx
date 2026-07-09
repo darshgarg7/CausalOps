@@ -24,7 +24,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import type { HistoryEntry } from "@/lib/hivemind-types";
+import type { HistoryEntry } from "@/lib/causalops-types";
 import { fmt } from "@/lib/derived-metrics";
 import { cn } from "@/lib/utils";
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseRunResponse, SchemaValidationError } from "./hivemind-schema";
+import { parseRunResponse, SchemaValidationError } from "./causalops-schema";
 
 const validRunResponse = {
   run_id: "run-123",

@@ -1,7 +1,7 @@
 import { AlertTriangle, ArrowRight, ShieldCheck, TrendingUp } from "lucide-react";
 import { useMemo } from "react";
 import { buildKillChain, type ScenarioState } from "@/lib/scenario-builder";
-import type { RunResponse } from "@/lib/hivemind-types";
+import type { RunResponse } from "@/lib/causalops-types";
 import { isImpactWithheld, type DerivedMetrics } from "@/lib/derived-metrics";
 import type { ObservabilityTrace } from "@/lib/agent-runtime";
 import { ExecutiveCausalCompact } from "./ExecutiveCausalCompact";

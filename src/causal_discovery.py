@@ -35,8 +35,8 @@ from scipy.stats import chi2 as chi2_dist
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_ALPHA = float(os.getenv("HIVEMIND_DISCOVERY_ALPHA", "0.1"))
-MIN_ROWS_FOR_DISCOVERY = int(os.getenv("HIVEMIND_DISCOVERY_MIN_ROWS", "30"))
+DEFAULT_ALPHA = float(os.getenv("CAUSALOPS_DISCOVERY_ALPHA", "0.1"))
+MIN_ROWS_FOR_DISCOVERY = int(os.getenv("CAUSALOPS_DISCOVERY_MIN_ROWS", "30"))
 
 
 @dataclass

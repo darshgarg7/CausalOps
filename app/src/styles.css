@@ -132,7 +132,7 @@
   --sidebar-ring: oklch(0.551 0.027 264.364);
 }
 
-/* HiveMind cyber theme overrides — applied in dark mode */
+/* CausalOps cyber theme overrides — applied in dark mode */
 .dark {
   --background: oklch(0.16 0.03 260);
   --foreground: oklch(0.96 0.01 240);

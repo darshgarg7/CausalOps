@@ -32,7 +32,7 @@ DEFAULT_GRAPH_DB_PATH = data_dir() / "graph_5d.db"
 def graph_db_path() -> Path:
     """Resolve the 5D graph database path (overridable via env for tests)."""
 
-    return Path(os.getenv("HIVEMIND_GRAPH_DB_PATH", str(DEFAULT_GRAPH_DB_PATH)))
+    return Path(os.getenv("CAUSALOPS_GRAPH_DB_PATH", str(DEFAULT_GRAPH_DB_PATH)))
 
 
 def connect_graph_db(db_path: str | Path | None = None) -> sqlite3.Connection:

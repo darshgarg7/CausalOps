@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { computeDerivedMetrics, fmt, isImpactWithheld } from "./derived-metrics";
-import type { RunResponse } from "./hivemind-types";
+import type { RunResponse } from "./causalops-types";
 
 function runFixture(overrides: Partial<RunResponse> = {}): RunResponse {
   return {

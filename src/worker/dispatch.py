@@ -1,4 +1,4 @@
-"""Execute spawn work commands consumed from hivemind.spawn."""
+"""Execute spawn work commands consumed from causalops.spawn."""
 
 from __future__ import annotations
 

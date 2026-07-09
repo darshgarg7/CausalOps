@@ -33,10 +33,10 @@ services:
     env_file:
       - .env
     environment:
-      HIVEMIND_ALLOWED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
+      CAUSALOPS_ALLOWED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
       KAFKA_BOOTSTRAP: redpanda:9092
-      HIVEMIND_ENABLE_SPAWN_WORKER: "0"
-      HIVEMIND_BARRIER_TIMEOUT_S: "1800"
+      CAUSALOPS_ENABLE_SPAWN_WORKER: "0"
+      CAUSALOPS_BARRIER_TIMEOUT_S: "1800"
     volumes:
       - ./data:/app/data
     depends_on:
@@ -55,11 +55,11 @@ services:
       - .env
     environment:
       KAFKA_BOOTSTRAP: redpanda:9092
-      HIVEMIND_ENABLE_SPAWN_WORKER: "1"
-      HIVEMIND_SPAWN_MAX_RETRIES: "2"
-      HIVEMIND_SPAWN_RETRY_BACKOFF_MS: "1000"
-      HIVEMIND_SPAWN_CONCURRENCY: "3"
-      HIVEMIND_KAFKA_MAX_POLL_INTERVAL_MS: "1800000"
+      CAUSALOPS_ENABLE_SPAWN_WORKER: "1"
+      CAUSALOPS_SPAWN_MAX_RETRIES: "2"
+      CAUSALOPS_SPAWN_RETRY_BACKOFF_MS: "1000"
+      CAUSALOPS_SPAWN_CONCURRENCY: "3"
+      CAUSALOPS_KAFKA_MAX_POLL_INTERVAL_MS: "1800000"
     volumes:
       - ./data:/app/data
     depends_on:
@@ -74,5 +74,25 @@ services:
     depends_on:
       api:
         condition: service_healthy
+    env_file:
+      - .env
     ports:
       - "8080:8080"
+
+  mcp:
+    build: .
+    command: sh -c "cd src && python -m memory.mcp_server"
+    env_file:
+      - .env
+    environment:
+      MCP_TRANSPORT: sse
+      MCP_HOST: "0.0.0.0"
+      MCP_PORT: "8001"
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped

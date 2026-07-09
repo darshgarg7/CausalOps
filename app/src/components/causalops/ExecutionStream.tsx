@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Activity, Check, Clock3, Gauge, Loader2, Terminal, X, Zap } from "lucide-react";
 
 import { Progress } from "@/components/ui/progress";
-import type { ExecutionEvent } from "@/lib/hivemind-types";
+import type { ExecutionEvent } from "@/lib/causalops-types";
 import { cn } from "@/lib/utils";
 
 interface ExecutionStreamProps {

@@ -1,6 +1,6 @@
 import { forwardRef, useMemo, useState } from "react";
 import { ArrowRight, GitBranch, Network, Table2, Workflow } from "lucide-react";
-import type { CausalEdge, CausalGraph, CausalNode } from "@/lib/hivemind-types";
+import type { CausalEdge, CausalGraph, CausalNode } from "@/lib/causalops-types";
 import { CausalGraph as CausalGraphViz, type CausalGraphHandle } from "./CausalGraph";
 import { NodeInspector } from "./NodeInspector";
 import { cn } from "@/lib/utils";

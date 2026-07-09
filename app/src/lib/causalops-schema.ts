@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { RunResponse } from "./hivemind-types";
+import type { RunResponse } from "./causalops-types";
 
 export const StrategySchema = z.object({
   title: z.string().min(1),

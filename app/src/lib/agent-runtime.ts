@@ -17,7 +17,7 @@
  * analyst knows it is a synthetic reconstruction layered on top of the
  * real backend response, not a live agent stream.
  */
-import type { CausalEdge, CausalGraph, RunResponse, Strategy } from "./hivemind-types";
+import type { CausalEdge, CausalGraph, RunResponse, Strategy } from "./causalops-types";
 import type { ScenarioState } from "./scenario-builder";
 import { TECHNIQUES, tacticById, type TacticId } from "./mitre-catalog";
 

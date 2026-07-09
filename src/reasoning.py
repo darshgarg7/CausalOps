@@ -29,8 +29,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-ANOMALY_THRESHOLD = float(os.getenv("HIVEMIND_ANOMALY_THRESHOLD", "0.15"))
-MAX_LISTED_TARGETS = int(os.getenv("HIVEMIND_REASONING_MAX_TARGETS", "10"))
+ANOMALY_THRESHOLD = float(os.getenv("CAUSALOPS_ANOMALY_THRESHOLD", "0.15"))
+MAX_LISTED_TARGETS = int(os.getenv("CAUSALOPS_REASONING_MAX_TARGETS", "10"))
 
 
 def build_reasoning_report(

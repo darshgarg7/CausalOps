@@ -497,6 +497,7 @@ This launches:
 - FastAPI Backend
 - Redpanda Event Bus
 - Distributed Worker
+- Memory MCP Server (standalone, `python -m memory.mcp_server`, port 8001)
 
 ---
 
@@ -511,6 +512,48 @@ uvicorn api:app \
     --host 0.0.0.0 \
     --port 8000
 ```
+
+---
+
+### Services & Environment Variables
+
+Compose runs four backend processes: **api** (coordinator + SSE, no spawn
+consumer), **worker** (spawn consumer), **redpanda**, and **mcp** (the
+standalone memory server — see [Persistent Semantic Memory Layer](#persistent-semantic-memory-layer)). Api and worker share `./data` for the SQLite run store.
+
+Kafka topics: `causalops.runs`, `causalops.spawn`, `causalops.artifacts`, `causalops.telemetry`, `causalops.evidence`, `causalops.dlq`.
+
+| Env var | Default (compose) | Purpose |
+|---------|-------------------|---------|
+| `CAUSALOPS_ENABLE_SPAWN_WORKER` | `0` on api, `1` on worker | In-process spawn consumer in api when `1` |
+| `CAUSALOPS_SPAWN_MAX_RETRIES` | `2` | Dispatch retries before DLQ |
+| `CAUSALOPS_SPAWN_RETRY_BACKOFF_MS` | `1000` | Delay between spawn retries |
+| `CAUSALOPS_SPAWN_CONCURRENCY` | `3` | Concurrent child-agent dispatch, avoids a fully serial queue |
+| `CAUSALOPS_BARRIER_TIMEOUT_S` | `1800` | Max wait for a parent/child dispatch barrier |
+| `CAUSALOPS_KAFKA_MAX_POLL_INTERVAL_MS` | `1800000` | Kafka consumer max poll interval for long agentic runs |
+| `CAUSALOPS_DATA_DIR` | repo-root `data/` | Run artifacts, run store, and 5D graph SQLite files |
+
+For single-process local dev without the worker container, set `CAUSALOPS_ENABLE_SPAWN_WORKER=1` on the api service.
+
+Live UI progress uses SSE. The frontend generates a `run_id`, opens
+`GET /run/{run_id}/events`, then calls `POST /run` with the same id. If
+`KAFKA_BOOTSTRAP` is unset, the graph still runs but the event stream is empty.
+
+Verify the event bus with the stack running (`docker compose up`):
+
+```bash
+chmod +x scripts/smoke_kafka_bus.sh
+./scripts/smoke_kafka_bus.sh
+```
+
+Runs bus unit tests, checks `/health`, and lists Redpanda topics when compose is up.
+
+Once running:
+
+- Frontend: <http://localhost:8080>
+- API docs: <http://localhost:8000/docs>
+- Health check: <http://localhost:8000/health>
+- Memory MCP server: <http://localhost:8001/sse> (SSE transport; stdio for Claude Desktop/Code)
 
 ---
 
@@ -1166,6 +1209,20 @@ The deterministic portions of the pipeline are intentionally lightweight so comp
 
 ---
 
+# Persistent Semantic Memory Layer
+
+Every completed run is embedded, indexed, and made retrievable to future runs — a hybrid architecture combining vector retrieval, a cross-run knowledge graph, and temporal decay, exposed over MCP.
+
+- **Vector retrieval** — each completed run's task description is embedded (`gemini-embedding-001`, 1536-dim) and stored in Supabase pgvector. New incidents retrieve the most similar past runs before the orchestrator decomposes them.
+- **Knowledge graph** — entities (assets, MITRE techniques, CVEs, causal graph nodes) extracted from evidence records and causal graphs persist as nodes and edges across runs, queryable by relationship.
+- **Temporal indexing** — similarity is weighted by `exp(-0.023 * age_in_days)` (30-day half-life), so recent incidents outweigh stale ones with the same textual similarity.
+- **MCP server** — a standalone FastMCP process (`python -m memory.mcp_server`, port 8001, SSE or stdio transport) exposing four tools: `search_similar_incidents`, `get_entity_relationships`, `get_asset_timeline`, `write_run_to_memory`. Never mounted inside the FastAPI app.
+- **Agent integration** — a `memory_retrieve` phase runs before the orchestrator, and a `memory_write` phase runs after every run completes; both are non-fatal by design, so a memory-layer outage never fails a run.
+
+Schema is tracked as code in `supabase/migrations/`. See [`CLAUDE.md`](CLAUDE.md) for the full component breakdown, environment variables, and manual retention query.
+
+---
+
 # Design Goals
 
 CausalOps was designed around several long-term objectives.
@@ -1202,11 +1259,11 @@ Several extensions are planned.
 
 ## Knowledge Graph
 
-- Cross-investigation retrieval
-- Persistent organizational memory
-- Graph embeddings
-- Multi-run causal querying
-- Temporal replay
+- ~~Cross-investigation retrieval~~ — done, see [Persistent Semantic Memory Layer](#persistent-semantic-memory-layer)
+- ~~Persistent organizational memory~~ — done, see [Persistent Semantic Memory Layer](#persistent-semantic-memory-layer)
+- Graph embeddings (embedding the causal graph structure itself, not just task descriptions)
+- Multi-hop causal querying (beyond the current single-hop entity neighborhood lookup)
+- Automated temporal replay and memory-row retention policy
 
 ---
 

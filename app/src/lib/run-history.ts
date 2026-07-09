@@ -1,6 +1,6 @@
-import type { HistoryEntry, RunResponse } from "./hivemind-types";
+import type { HistoryEntry, RunResponse } from "./causalops-types";
 
-const STORAGE_KEY = "hivemind:history:v1";
+const STORAGE_KEY = "causalops:history:v1";
 const MAX_ENTRIES = 50;
 
 function isBrowser() {

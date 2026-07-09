@@ -1,4 +1,4 @@
-"""Shared schemas for HiveMind's agentic causal evidence pipeline.
+"""Shared schemas for CausalOps's agentic causal evidence pipeline.
 
 The project deliberately separates three layers:
 
@@ -325,6 +325,11 @@ class GraphState(TypedDict):
     reasoning_report: dict[str, Any] | None
     agent_evolution_report: dict[str, Any] | None
     policy_optimization_report: dict[str, Any] | None
+
+    # Memory layer: populated by memory_retrieve_node, consumed by
+    # grand_orchestrator_node. Structured, not pre-formatted text — formatting
+    # into a prompt string happens in agents.py's _format_memory_context().
+    memory_context: list[dict[str, Any]] | None
 
 
 class ParentState(TypedDict):

@@ -1,6 +1,6 @@
 import { forwardRef, lazy, Suspense, useImperativeHandle, useRef } from "react";
 import { ClientOnly } from "@tanstack/react-router";
-import type { CausalGraph as CausalGraphData, CausalNode, CausalEdge } from "@/lib/hivemind-types";
+import type { CausalGraph as CausalGraphData, CausalNode, CausalEdge } from "@/lib/causalops-types";
 import type { EdgeAnnotation } from "@/lib/agent-runtime";
 
 export interface CausalGraphHandle {

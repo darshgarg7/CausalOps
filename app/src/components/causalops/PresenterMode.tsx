@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { Activity, Crown, Network, ShieldCheck, X } from "lucide-react";
-import type { Impact, RunResponse } from "@/lib/hivemind-types";
+import type { Impact, RunResponse } from "@/lib/causalops-types";
 import { fmt, isImpactWithheld, type DerivedMetrics } from "@/lib/derived-metrics";
 import { cn } from "@/lib/utils";
 
@@ -278,7 +278,7 @@ export function PresenterMode({ open, onClose, result, derived, task }: Presente
       </div>
 
       <div className="border-t border-white/5 px-10 py-3 text-center font-mono text-[10px] uppercase tracking-[0.4em] text-muted-foreground/50">
-        HiveMind · Causal Execution Framework · Press ESC to exit
+        CausalOps · Causal Execution Framework · Press ESC to exit
       </div>
     </div>
   );

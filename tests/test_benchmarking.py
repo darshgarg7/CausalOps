@@ -1,4 +1,4 @@
-"""Tests for standardized HiveMind tier scoring."""
+"""Tests for standardized CausalOps tier scoring."""
 
 from __future__ import annotations
 

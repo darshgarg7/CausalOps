@@ -22,7 +22,7 @@ Tier = Literal[
 
 
 class ArtifactType(str, Enum):
-    """Semantic artifact kinds published on the HiveMind bus."""
+    """Semantic artifact kinds published on the CausalOps bus."""
 
     AGENT_CONFIG = "agent_config"
     CHILD_CONFIG = "child_config"
@@ -43,7 +43,7 @@ class ArtifactType(str, Enum):
 
 
 class EventEnvelope(BaseModel):
-    """Canonical Kafka message wrapper for all HiveMind events."""
+    """Canonical Kafka message wrapper for all CausalOps events."""
 
     run_id: str
     correlation_id: str

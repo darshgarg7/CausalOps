@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { DEFAULT_API_URL, clearApiUrl, getApiUrl, setApiUrl } from "@/lib/hivemind-api";
+import { DEFAULT_API_URL, clearApiUrl, getApiUrl, setApiUrl } from "@/lib/causalops-api";
 import { cn } from "@/lib/utils";
 
 interface ApiSettingsDialogProps {
@@ -88,7 +88,7 @@ export function ApiSettingsDialog({ open, onOpenChange, onChange }: ApiSettingsD
             Backend Endpoint
           </DialogTitle>
           <DialogDescription>
-            HiveMind runs against the built-in backend by default. Override this only if you want to
+            CausalOps runs against the built-in backend by default. Override this only if you want to
             point execution at your own public causal engine endpoint.
           </DialogDescription>
         </DialogHeader>

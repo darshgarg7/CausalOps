@@ -1,8 +1,13 @@
-"""LangGraph assembly for HiveMind's investigation and causal workflow.
+"""LangGraph assembly for CausalOps's investigation and causal workflow.
 
 Deprecated for execution in Phase 2b+: the coordinator + spawn workers drive
 parent/child fan-out. This module remains for reference and refutation routing
 used during migration tests.
+
+NOTE: the memory_retrieve/memory_write topology below is reference-only.
+Production execution wires those nodes into coordinator/runner.py::execute_run()
+as coordinator phases (_run_memory_retrieve, _run_memory_write), since this
+module's build_graph() is never invoked by the real coordinator path.
 """
 
 from __future__ import annotations
@@ -18,6 +23,7 @@ from bus.helpers import bind_from_state
 from bus.publish import publish_telemetry
 from causal import causal_synthesis_node, dowhy_engine_node
 from evaluator import evaluate_memos_node
+from memory.nodes import memory_retrieve_node, memory_write_node
 from schema import GraphState
 
 logger = logging.getLogger(__name__)
@@ -93,6 +99,7 @@ def build_graph():
 
     builder = StateGraph(GraphState)
 
+    builder.add_node("memory_retrieve", memory_retrieve_node)
     builder.add_node("orchestrator", grand_orchestrator_node)
     builder.add_node("parent_agent", parent_agent_node)
     builder.add_node("gather_children", gather_children_node)
@@ -100,8 +107,10 @@ def build_graph():
     builder.add_node("evaluate_memos", evaluate_memos_node)
     builder.add_node("causal_synthesis", causal_synthesis_node)
     builder.add_node("dowhy_engine", dowhy_engine_node)
+    builder.add_node("memory_write", memory_write_node)
 
-    builder.add_edge(START, "orchestrator")
+    builder.add_edge(START, "memory_retrieve")
+    builder.add_edge("memory_retrieve", "orchestrator")
     builder.add_conditional_edges("orchestrator", route_to_parents, ["parent_agent"])
     builder.add_edge("parent_agent", "gather_children")
     builder.add_conditional_edges("gather_children", route_to_children, ["child_agent"])
@@ -112,9 +121,10 @@ def build_graph():
         "dowhy_engine",
         conditional_refutation_check,
         {
-            "end": END,
+            "end": "memory_write",
             "causal_synthesis": "causal_synthesis",
         },
     )
+    builder.add_edge("memory_write", END)
 
     return builder.compile()

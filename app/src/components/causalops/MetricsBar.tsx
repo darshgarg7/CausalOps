@@ -11,7 +11,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Impact } from "@/lib/hivemind-types";
+import type { Impact } from "@/lib/causalops-types";
 import { fmt, isImpactWithheld, type DerivedMetrics } from "@/lib/derived-metrics";
 
 interface MetricsBarProps {

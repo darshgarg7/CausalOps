@@ -1,4 +1,4 @@
-"""Kafka event bus for HiveMind semantic artifacts and telemetry."""
+"""Kafka event bus for CausalOps semantic artifacts and telemetry."""
 
 from bus.events import ArtifactType, EventEnvelope, Tier
 from bus.publish import (

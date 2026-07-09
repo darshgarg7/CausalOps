@@ -15,7 +15,7 @@ import {
   Sparkles,
   Zap,
 } from "lucide-react";
-import { fetch5DGraph } from "@/lib/hivemind-api";
+import { fetch5DGraph } from "@/lib/causalops-api";
 import { cn } from "@/lib/utils";
 
 interface Props {

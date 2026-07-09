@@ -1,4 +1,4 @@
-"""Normalize external cyber records into HiveMind evidence contracts.
+"""Normalize external cyber records into CausalOps evidence contracts.
 
 These adapters are deliberately export-based: they accept records from SIEM
 queries, CVE feed pulls, and incident-report systems without requiring live

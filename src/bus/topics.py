@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from bus.events import ArtifactType
 
-TOPIC_RUNS = "hivemind.runs"
-TOPIC_SPAWN = "hivemind.spawn"
-TOPIC_ARTIFACTS = "hivemind.artifacts"
-TOPIC_TELEMETRY = "hivemind.telemetry"
-TOPIC_EVIDENCE = "hivemind.evidence"
-TOPIC_DLQ = "hivemind.dlq"
+TOPIC_RUNS = "causalops.runs"
+TOPIC_SPAWN = "causalops.spawn"
+TOPIC_ARTIFACTS = "causalops.artifacts"
+TOPIC_TELEMETRY = "causalops.telemetry"
+TOPIC_EVIDENCE = "causalops.evidence"
+TOPIC_DLQ = "causalops.dlq"
 
 _ALL_TOPICS = (
     TOPIC_RUNS,

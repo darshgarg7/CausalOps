@@ -49,7 +49,7 @@ def publish_spawn(
     artifact_type: ArtifactType,
     payload: dict[str, Any],
 ) -> None:
-    """Publish AgentConfig or ChildConfig to hivemind.spawn."""
+    """Publish AgentConfig or ChildConfig to causalops.spawn."""
 
     if artifact_type not in (ArtifactType.AGENT_CONFIG, ArtifactType.CHILD_CONFIG):
         raise ValueError(f"publish_spawn expected spawn artifact, got {artifact_type}")
@@ -68,7 +68,7 @@ def publish_work_command(
     artifact_type: ArtifactType,
     payload: dict[str, Any],
 ) -> None:
-    """Publish an executable parent/child work command to hivemind.spawn."""
+    """Publish an executable parent/child work command to causalops.spawn."""
 
     if artifact_type not in (ArtifactType.RUN_PARENT, ArtifactType.RUN_CHILD):
         raise ValueError(
@@ -90,7 +90,7 @@ def publish_artifact(
     artifact_type: ArtifactType,
     payload: dict[str, Any],
 ) -> None:
-    """Publish a semantic artifact to hivemind.artifacts."""
+    """Publish a semantic artifact to causalops.artifacts."""
 
     _emit(
         agent_id=agent_id,
@@ -127,7 +127,7 @@ def publish_run_event(
     *,
     detail: str | None = None,
 ) -> None:
-    """Publish run lifecycle control events to hivemind.runs."""
+    """Publish run lifecycle control events to causalops.runs."""
 
     artifact_map = {
         "started": ArtifactType.RUN_STARTED,

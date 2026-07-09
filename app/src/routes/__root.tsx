@@ -30,14 +30,14 @@ export const Route = createRootRoute({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "HiveMind Causal Engine" },
+      { title: "CausalOps Causal Engine" },
       {
         name: "description",
         content:
-          "HiveMind Causal Engine — premium dark-mode cybersecurity dashboard for causal threat analysis, strategy scoring, and impact estimation.",
+          "CausalOps Causal Engine — premium dark-mode cybersecurity dashboard for causal threat analysis, strategy scoring, and impact estimation.",
       },
-      { name: "author", content: "HiveMind" },
-      { property: "og:title", content: "HiveMind Causal Engine" },
+      { name: "author", content: "CausalOps" },
+      { property: "og:title", content: "CausalOps Causal Engine" },
       {
         property: "og:description",
         content:

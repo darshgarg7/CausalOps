@@ -1,5 +1,5 @@
 import { AlertTriangle } from "lucide-react";
-import type { SchemaIssue } from "@/lib/hivemind-schema";
+import type { SchemaIssue } from "@/lib/causalops-schema";
 
 export function ErrorPanel({
   message,

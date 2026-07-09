@@ -33,7 +33,7 @@ export function ExportPanel({ state, ttpIds }: Props) {
       hint: "ATT&CK-mapped, schema v1",
       run: () => {
         download(
-          "hivemind-scenario.json",
+          "causalops-scenario.json",
           JSON.stringify(toMitreJson(state, ttpIds), null, 2),
           "application/json",
         );
@@ -45,7 +45,7 @@ export function ExportPanel({ state, ttpIds }: Props) {
       label: "YAML",
       hint: "Automation pipelines",
       run: () => {
-        download("hivemind-scenario.yaml", toYaml(state, ttpIds), "text/yaml");
+        download("causalops-scenario.yaml", toYaml(state, ttpIds), "text/yaml");
         toast.success("Exported YAML");
       },
     },
@@ -67,7 +67,7 @@ export function ExportPanel({ state, ttpIds }: Props) {
             to: s.technique.id,
           })),
         };
-        download("hivemind-attack-graph.json", JSON.stringify(graph, null, 2), "application/json");
+        download("causalops-attack-graph.json", JSON.stringify(graph, null, 2), "application/json");
         toast.success("Exported attack graph");
       },
     },
@@ -78,7 +78,7 @@ export function ExportPanel({ state, ttpIds }: Props) {
       run: () => {
         const chain = buildKillChain(state, ttpIds);
         download(
-          "hivemind-executive-summary.txt",
+          "causalops-executive-summary.txt",
           toExecutiveSummary(state, ttpIds, chain),
           "text/plain",
         );
