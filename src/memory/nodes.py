@@ -21,9 +21,8 @@ _RETRIEVE_K = 3
 
 
 def _memory_configured() -> bool:
-    return bool(os.getenv("SUPABASE_URL")) and bool(
-        os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-    )
+    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+    return bool(os.getenv("SUPABASE_URL")) and bool(key) and "your-" not in key
 
 
 async def memory_retrieve_node(state: GraphState) -> dict[str, Any]:

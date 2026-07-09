@@ -76,6 +76,11 @@ class SupabaseMemoryStore:
                     "source_run_id": run_id,
                 }
             )
+        # Delete any edges from a prior write_run() call for this run_id before
+        # inserting the current set, so retries/reruns don't duplicate edges.
+        self._client.table("memory_entity_edges").delete().eq(
+            "source_run_id", run_id
+        ).execute()
         if edge_rows:
             self._client.table("memory_entity_edges").insert(edge_rows).execute()
 
@@ -120,6 +125,18 @@ class SupabaseMemoryStore:
         """Chronological edges touching one asset over the trailing window."""
 
         try:
+            entity_response = (
+                self._client.table("memory_entities")
+                .select("id")
+                .eq("entity_type", "asset")
+                .eq("entity_value", asset_id)
+                .execute()
+            )
+            entity_rows = _as_rows(entity_response.data)
+            if not entity_rows:
+                return []
+            entity_id = entity_rows[0]["id"]
+
             cutoff = (datetime.now(UTC) - timedelta(days=since_days)).isoformat()
             response = (
                 self._client.table("memory_entity_edges")
@@ -127,12 +144,12 @@ class SupabaseMemoryStore:
                     "*, source_entity:source_entity_id(*), "
                     "target_entity:target_entity_id(*)"
                 )
+                .or_(f"source_entity_id.eq.{entity_id},target_entity_id.eq.{entity_id}")
                 .gte("created_at", cutoff)
                 .order("created_at")
                 .execute()
             )
-            rows = _as_rows(response.data)
-            return [row for row in rows if _touches_asset(row, asset_id)]
+            return _as_rows(response.data)
         except Exception:
             logger.exception("get_asset_timeline failed for asset %s", asset_id)
             return []
@@ -160,15 +177,3 @@ class SupabaseMemoryStore:
             if entity_type and entity_value and entity_id:
                 entity_ids[(entity_type, entity_value)] = str(entity_id)
         return entity_ids
-
-
-def _touches_asset(row: dict[str, Any], asset_id: str) -> bool:
-    for key in ("source_entity", "target_entity"):
-        entity = row.get(key) or {}
-        matches_asset = (
-            entity.get("entity_type") == "asset"
-            and entity.get("entity_value") == asset_id
-        )
-        if matches_asset:
-            return True
-    return False

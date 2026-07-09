@@ -169,6 +169,7 @@ def test_memory_round_trips_through_real_coordinator(
 ) -> None:
     _install_fake_nodes(tagged_ids)
     monkeypatch.setattr("coordinator.runner.publish_telemetry", lambda **_: None)
+    monkeypatch.setattr("coordinator.runner.publish_artifact", lambda **_: None)
     monkeypatch.setattr("coordinator.runner.bind_from_state", lambda _: None)
 
     tag = tagged_ids["tag"]
@@ -196,6 +197,7 @@ def test_memory_round_trips_through_real_coordinator(
             evidence_records=evidence_records,
             run_id=tagged_ids["run_id_1"],
             correlation_id=tagged_ids["run_id_1"],
+            execution_mode="deep",
             store=store,
         )
     )
@@ -210,6 +212,7 @@ def test_memory_round_trips_through_real_coordinator(
             evidence_records=evidence_records,
             run_id=tagged_ids["run_id_2"],
             correlation_id=tagged_ids["run_id_2"],
+            execution_mode="deep",
             store=store,
         )
     )
