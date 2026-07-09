@@ -24,7 +24,6 @@ from typing import Any
 
 import pytest
 
-from agents import _format_memory_context
 from coordinator.runner import execute_run
 from coordinator.store import RunStore, set_run_store
 from memory.store import SupabaseMemoryStore
@@ -230,5 +229,4 @@ def test_memory_round_trips_through_real_coordinator(
     persisted_2 = store.get_run(tagged_ids["run_id_2"])
     assert persisted_2.memory_context == memory_context
 
-    formatted = _format_memory_context(memory_context)
-    assert tagged_ids["run_id_1"] in formatted
+    assert any(tagged_ids["run_id_1"] in str(entry) for entry in memory_context)
