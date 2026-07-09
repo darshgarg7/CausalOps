@@ -11,10 +11,9 @@ import os
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from supabase import Client, create_client
-
 from memory.embedder import embed_text
 from memory.extractor import build_edges, extract_entities
+from supabase import Client, create_client
 
 logger = logging.getLogger(__name__)
 

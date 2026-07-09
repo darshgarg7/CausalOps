@@ -88,8 +88,8 @@ export function ApiSettingsDialog({ open, onOpenChange, onChange }: ApiSettingsD
             Backend Endpoint
           </DialogTitle>
           <DialogDescription>
-            CausalOps runs against the built-in backend by default. Override this only if you want to
-            point execution at your own public causal engine endpoint.
+            CausalOps runs against the built-in backend by default. Override this only if you want
+            to point execution at your own public causal engine endpoint.
           </DialogDescription>
         </DialogHeader>
 

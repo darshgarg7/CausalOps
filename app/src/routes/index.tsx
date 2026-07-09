@@ -3,7 +3,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Brain, Crown, FileDown, Hexagon, History, Maximize2, Radar, UserCog } from "lucide-react";
 import { toast } from "sonner";
 
-import { ScenarioBuilder, type ScenarioBuilderHandle } from "@/components/causalops/ScenarioBuilder";
+import {
+  ScenarioBuilder,
+  type ScenarioBuilderHandle,
+} from "@/components/causalops/ScenarioBuilder";
 import { ExecutiveView } from "@/components/causalops/ExecutiveView";
 import { EMPTY_SCENARIO, type ScenarioState } from "@/lib/scenario-builder";
 import { MetricsBar } from "@/components/causalops/MetricsBar";
@@ -360,8 +363,8 @@ function Index() {
       )}
 
       <footer className="mt-16 text-center font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground/60">
-        CausalOps · Causal Execution Framework · <span className="text-foreground/60">E</span> mode ·{" "}
-        <span className="text-foreground/60">H</span> history ·{" "}
+        CausalOps · Causal Execution Framework · <span className="text-foreground/60">E</span> mode
+        · <span className="text-foreground/60">H</span> history ·{" "}
         <span className="text-foreground/60">P</span> presenter
       </footer>
     </main>
