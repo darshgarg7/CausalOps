@@ -129,6 +129,7 @@ def test_execute_run_with_mocked_nodes(store: RunStore, monkeypatch) -> None:
             task_description="Investigate lateral movement in finance segment",
             run_id="run-coord-1",
             correlation_id="run-coord-1",
+            execution_mode="deep",
             store=store,
         )
     )
@@ -143,3 +144,120 @@ def test_execute_run_with_mocked_nodes(store: RunStore, monkeypatch) -> None:
     assert persisted.children_barrier_met() is True
     assert persisted.agent_evolution_report is not None
     assert persisted.policy_optimization_report is not None
+
+
+def test_standard_mode_skips_expensive_planning_nodes(
+    store: RunStore,
+    monkeypatch,
+) -> None:
+    memo_a = DecisionMemo(
+        perspective="Containment",
+        strategy="Disable suspect sessions and isolate exposed assets",
+        risks=["Temporary business disruption"],
+        assumptions=["Incident is active"],
+        evidence_needs=["identity logs", "endpoint telemetry"],
+        confidence="high",
+    )
+    memo_b = DecisionMemo(
+        perspective="Evidence",
+        strategy="Collect causal evidence before broad remediation",
+        risks=["Delayed containment"],
+        assumptions=["Telemetry is available"],
+        evidence_needs=["SIEM alerts", "cloud audit logs", "network egress"],
+        confidence="medium",
+    )
+
+    calls = {
+        "orchestrator": 0,
+        "parent": 0,
+        "child": 0,
+        "evaluator": 0,
+        "causal_synthesis": 0,
+    }
+
+    def fake_orchestrator(_state: dict[str, Any]) -> dict[str, Any]:
+        calls["orchestrator"] += 1
+        return {"parent_configs": []}
+
+    def fake_parent(_state: dict[str, Any]) -> dict[str, Any]:
+        calls["parent"] += 1
+        return {"child_configs": []}
+
+    def fake_child(_state: dict[str, Any]) -> dict[str, Any]:
+        calls["child"] += 1
+        memo = memo_a if "Containment" in _state["persona"] else memo_b
+        return {"memos": [memo]}
+
+    def fake_evaluator(_state: dict[str, Any]) -> dict[str, Any]:
+        calls["evaluator"] += 1
+        return {"ranked_strategies": [], "final_recommendation": None}
+
+    def fake_causal(_state: dict[str, Any]) -> dict[str, Any]:
+        calls["causal_synthesis"] += 1
+        return {"causal_payload": {}, "causal_refutation_passed": False}
+
+    def fake_estimator(_state: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "dowhy_results": {"ate_estimate": None, "method": "withheld:standard"},
+            "causal_estimate_report": {"method": "withheld:standard", "ate": None},
+            "causal_dataset_profile": {},
+            "causal_refutation_passed": False,
+            "causal_refutation_attempts": 1,
+        }
+
+    _install_fake_nodes(
+        fake_orchestrator=fake_orchestrator,
+        fake_parent=fake_parent,
+        fake_child=fake_child,
+        fake_evaluator=fake_evaluator,
+        fake_causal=fake_causal,
+        fake_estimator=fake_estimator,
+    )
+
+    causal = sys.modules["causal"]
+    causal._fallback_causal_payload = lambda _memos: {
+        "graph": {
+            "nodes": [],
+            "edges": [],
+            "treatment_variable": "treatment",
+            "outcome_variable": "outcome",
+            "candidate_confounders": [],
+        },
+        "measurement_plan": [],
+        "edge_evidence_requirements": [],
+    }
+    causal._sanitize_graph = lambda graph: graph
+
+    def fake_reasoning(_state: dict[str, Any]) -> dict[str, Any]:
+        return {"reasoning_report": {"stats": {}, "recommendations": []}}
+
+    reasoning = ModuleType("reasoning")
+    reasoning.reasoning_node = fake_reasoning
+    sys.modules["reasoning"] = reasoning
+
+    monkeypatch.setattr("coordinator.runner.publish_telemetry", lambda **_: None)
+    monkeypatch.setattr("coordinator.runner.publish_artifact", lambda **_: None)
+    monkeypatch.setattr("coordinator.runner.bind_from_state", lambda _: None)
+
+    final_state = asyncio.run(
+        execute_run(
+            task_description="Investigate ransomware blast radius in cloud identity",
+            run_id="run-coord-standard",
+            correlation_id="run-coord-standard",
+            execution_mode="standard",
+            store=store,
+        )
+    )
+
+    assert calls == {
+        "orchestrator": 0,
+        "parent": 0,
+        "child": 2,
+        "evaluator": 0,
+        "causal_synthesis": 0,
+    }
+    assert final_state["execution_mode"] == "standard"
+    assert len(final_state["parent_configs"]) == 1
+    assert len(final_state["child_configs"]) == 2
+    assert len(final_state["memos"]) == 2
+    assert final_state["ranked_strategies"][0]["ranked_perspectives"][0] == "Evidence"

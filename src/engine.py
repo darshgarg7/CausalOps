@@ -24,6 +24,7 @@ from coordinator.runner import execute_run
 from coordinator.store import RunRecord, get_run_store
 from demo_fixtures import is_demo_evidence, resolve_run_evidence
 from paths import data_dir
+from schema import ExecutionMode
 
 DATA_DIR = data_dir()
 
@@ -47,6 +48,7 @@ async def run_hivemind(
     task_description: str,
     evidence_records: list[dict[str, Any]] | None = None,
     run_id: str | None = None,
+    execution_mode: ExecutionMode = "standard",
 ) -> dict[str, Any]:
     """Run the full HiveMind workflow and return a persisted artifact."""
 
@@ -58,6 +60,7 @@ async def run_hivemind(
 
     initial_state = {
         "task_description": task_description,
+        "execution_mode": execution_mode,
         "run_id": resolved_run_id,
         "correlation_id": correlation_id,
         "evidence_records": resolved_evidence,
@@ -79,6 +82,7 @@ async def run_hivemind(
             evidence_records=resolved_evidence,
             run_id=resolved_run_id,
             correlation_id=correlation_id,
+            execution_mode=execution_mode,
         )
         try:
             record = get_run_store().get_run(resolved_run_id)
@@ -121,6 +125,7 @@ async def run_hivemind(
 
     artifact = {
         "run_id": run_id,
+        "execution_mode": final_state.get("execution_mode", execution_mode),
         "strategies": strategies,
         "ranked_strategies": final_state.get("ranked_strategies", []),
         "final_recommendation": final_state.get("final_recommendation"),

@@ -48,6 +48,16 @@ export function NodeInspector({ node, edge, graph, onClose }: NodeInspectorProps
           <Field label="Target">
             <span className="font-mono text-[color:var(--neon-violet)]">{edge.target}</span>
           </Field>
+          {edge.required_evidence && edge.required_evidence.length > 0 && (
+            <Field label="Required evidence">
+              <MiniList items={edge.required_evidence} />
+            </Field>
+          )}
+          {edge.falsification_tests && edge.falsification_tests.length > 0 && (
+            <Field label="Falsification tests">
+              <MiniList items={edge.falsification_tests} />
+            </Field>
+          )}
         </div>
       </div>
     );
@@ -77,6 +87,13 @@ export function NodeInspector({ node, edge, graph, onClose }: NodeInspectorProps
         <Field label="ID">
           <span className="font-mono text-xs text-[color:var(--neon-cyan)]">{node.id}</span>
         </Field>
+        {node.description && (
+          <Field label="Description">
+            <p className="rounded-md border border-white/5 bg-white/[0.03] px-2 py-1.5 text-xs leading-relaxed text-foreground/85">
+              {node.description}
+            </p>
+          </Field>
+        )}
         <Field label="Degree">
           <span className="font-mono text-xs">
             {incoming.length} in · {outgoing.length} out
@@ -87,6 +104,21 @@ export function NodeInspector({ node, edge, graph, onClose }: NodeInspectorProps
         <EdgeList title="Outgoing" edges={outgoing} highlightSide="target" />
       </div>
     </div>
+  );
+}
+
+function MiniList({ items }: { items: string[] }) {
+  return (
+    <ul className="space-y-1">
+      {items.map((item) => (
+        <li
+          key={item}
+          className="rounded-md border border-white/5 bg-white/[0.03] px-2 py-1.5 text-xs text-foreground/85"
+        >
+          {item}
+        </li>
+      ))}
+    </ul>
   );
 }
 

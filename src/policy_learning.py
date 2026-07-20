@@ -292,7 +292,7 @@ def _value_iteration(
         for state_id, actions_q in q_values.items()
     }
     greedy_policy = {
-        state_id: max(actions_q, key=actions_q.get)
+        state_id: max(actions_q, key=lambda k: actions_q[k])
         for state_id, actions_q in rounded_q.items()
     }
     return {
@@ -320,7 +320,7 @@ def _stackelberg_response(
     global_q = q_values.get("kg.global", {})
     if not global_q:
         return {"leader_action": None, "followers": []}
-    leader_action_id = max(global_q, key=global_q.get)
+    leader_action_id = max(global_q, key=lambda k: global_q[k])
     leader = next(a for a in actions if a["action_id"] == leader_action_id)
     followers = []
     for action in actions:
@@ -600,4 +600,4 @@ def _clamp(value: float) -> float:
 
 
 def _round(value: float) -> float:
-    return round(float(value), 4)
+    return round(value, 4)

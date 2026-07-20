@@ -9,17 +9,23 @@ export interface Strategy {
 export interface CausalNode {
   id: string;
   label: string;
+  description?: string;
 }
 
 export interface CausalEdge {
   source: string;
   target: string;
   relationship: string;
+  required_evidence?: string[];
+  falsification_tests?: string[];
 }
 
 export interface CausalGraph {
   nodes: CausalNode[];
   edges: CausalEdge[];
+  treatment_variable?: string;
+  outcome_variable?: string;
+  candidate_confounders?: string[];
 }
 
 export interface Impact {
@@ -35,6 +41,7 @@ export interface Impact {
 
 export interface RunResponse {
   run_id: string;
+  execution_mode?: ExecutionMode;
   strategies: Strategy[];
   ranked_strategies?: unknown[];
   final_recommendation?: string | null;
@@ -47,6 +54,8 @@ export interface RunResponse {
   agent_evolution_report?: unknown;
   policy_optimization_report?: unknown;
 }
+
+export type ExecutionMode = "standard" | "deep";
 
 export interface RunEnqueueResponse {
   run_id: string;

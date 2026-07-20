@@ -28,7 +28,29 @@ def _spawn_retry_backoff_seconds() -> float:
     return max(0.0, int(os.getenv("HIVEMIND_SPAWN_RETRY_BACKOFF_MS", "1000")) / 1000.0)
 
 
-async def _process_spawn_message(consumer: AIOKafkaConsumer, message) -> None:
+def _spawn_concurrency() -> int:
+    try:
+        return max(1, int(os.getenv("HIVEMIND_SPAWN_CONCURRENCY", "3")))
+    except ValueError:
+        return 3
+
+
+def _max_poll_interval_ms() -> int:
+    try:
+        return max(
+            300_000,
+            int(os.getenv("HIVEMIND_KAFKA_MAX_POLL_INTERVAL_MS", "1800000")),
+        )
+    except ValueError:
+        return 1_800_000
+
+
+async def _process_spawn_message(
+    consumer: AIOKafkaConsumer,
+    message,
+    *,
+    commit: bool = True,
+) -> None:
     """Dispatch one spawn message with retries, DLQ handoff, and manual commit."""
 
     max_retries = _spawn_max_retries()
@@ -49,16 +71,19 @@ async def _process_spawn_message(consumer: AIOKafkaConsumer, message) -> None:
                 attempt=attempt,
                 original_key=message.key,
             )
-            await consumer.commit()
+            if commit:
+                await consumer.commit()
             return
 
         if envelope.artifact_type not in _SPAWN_COMMANDS:
-            await consumer.commit()
+            if commit:
+                await consumer.commit()
             return
 
         try:
             await dispatch_spawn_envelope(envelope)
-            await consumer.commit()
+            if commit:
+                await consumer.commit()
             return
         except Exception as exc:
             idempotency_key = idempotency_key_from_envelope(envelope)
@@ -85,9 +110,26 @@ async def _process_spawn_message(consumer: AIOKafkaConsumer, message) -> None:
                     artifact_type=envelope.artifact_type.value,
                     original_key=message.key,
                 )
-                await consumer.commit()
+                if commit:
+                    await consumer.commit()
                 return
             await asyncio.sleep(backoff_s)
+
+
+async def _process_spawn_batch(consumer: AIOKafkaConsumer, messages: list) -> None:
+    """Process a fetched Kafka batch with bounded in-process concurrency."""
+
+    if not messages:
+        return
+
+    semaphore = asyncio.Semaphore(_spawn_concurrency())
+
+    async def process(message) -> None:
+        async with semaphore:
+            await _process_spawn_message(consumer, message, commit=False)
+
+    await asyncio.gather(*(process(message) for message in messages))
+    await consumer.commit()
 
 
 async def run_spawn_consumer(*, stop_event: asyncio.Event | None = None) -> None:
@@ -105,6 +147,7 @@ async def run_spawn_consumer(*, stop_event: asyncio.Event | None = None) -> None
         group_id="hivemind-workers",
         auto_offset_reset="earliest",
         enable_auto_commit=False,
+        max_poll_interval_ms=_max_poll_interval_ms(),
     )
     await consumer.start()
     logger.info("Spawn consumer started on %s", TOPIC_SPAWN)
@@ -113,9 +156,12 @@ async def run_spawn_consumer(*, stop_event: asyncio.Event | None = None) -> None
             if stop_event and stop_event.is_set():
                 break
             records = await consumer.getmany(timeout_ms=500, max_records=50)
-            for batch in records.values():
-                for message in batch:
-                    await _process_spawn_message(consumer, message)
+            messages = [
+                message
+                for batch in records.values()
+                for message in batch
+            ]
+            await _process_spawn_batch(consumer, messages)
             if stop_event is None:
                 await asyncio.sleep(0)
     finally:

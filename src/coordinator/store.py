@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from paths import data_dir
-from schema import AgentConfig, ChildConfig, DecisionMemo, GraphState
+from schema import AgentConfig, ChildConfig, DecisionMemo, ExecutionMode, GraphState
 
 DEFAULT_DB_PATH = data_dir() / "runs.db"
 
@@ -40,6 +40,7 @@ class RunRecord:
     run_id: str
     correlation_id: str
     task_description: str
+    execution_mode: ExecutionMode = "standard"
     phase: str = "created"
     status: str = "running"
     error_detail: str | None = None
@@ -70,6 +71,7 @@ class RunRecord:
 
         return {
             "task_description": self.task_description,
+            "execution_mode": self.execution_mode,
             "run_id": self.run_id,
             "correlation_id": self.correlation_id,
             "parent_configs": self.parent_configs,
@@ -218,6 +220,7 @@ class RunStore:
         correlation_id: str,
         task_description: str,
         evidence_records: list[dict[str, Any]] | None = None,
+        execution_mode: ExecutionMode = "standard",
         status: str = "running",
     ) -> RunRecord:
         """Insert a new run record."""
@@ -226,6 +229,7 @@ class RunStore:
             run_id=run_id,
             correlation_id=correlation_id,
             task_description=task_description,
+            execution_mode=execution_mode,
             evidence_records=evidence_records or [],
             phase="created",
             status=status,
@@ -240,6 +244,7 @@ class RunStore:
         correlation_id: str,
         task_description: str,
         evidence_records: list[dict[str, Any]] | None = None,
+        execution_mode: ExecutionMode = "standard",
     ) -> RunRecord:
         """Create a queued run awaiting background execution."""
 
@@ -247,6 +252,7 @@ class RunStore:
             run_id=run_id,
             correlation_id=correlation_id,
             task_description=task_description,
+            execution_mode=execution_mode,
             evidence_records=evidence_records or [],
             phase="queued",
             status="queued",
@@ -279,6 +285,47 @@ class RunStore:
         if row is None:
             raise KeyError(f"Run not found: {run_id}")
         return _record_from_json(json.loads(row["state_json"]))
+
+    def _load_for_update(self, conn: sqlite3.Connection, run_id: str) -> RunRecord:
+        row = conn.execute(
+            "SELECT state_json FROM runs WHERE run_id = ?",
+            (run_id,),
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"Run not found: {run_id}")
+        return _record_from_json(json.loads(row["state_json"]))
+
+    def _write_existing(self, conn: sqlite3.Connection, record: RunRecord) -> None:
+        now = datetime.now(UTC).isoformat()
+        conn.execute(
+            """
+            UPDATE runs
+            SET phase = ?, status = ?, state_json = ?, updated_at = ?
+            WHERE run_id = ?
+            """,
+            (
+                record.phase,
+                record.status,
+                json.dumps(_record_to_json(record)),
+                now,
+                record.run_id,
+            ),
+        )
+
+    def _mutate_run(self, run_id: str, mutate) -> RunRecord:
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            record = self._load_for_update(conn, run_id)
+            mutate(record)
+            self._write_existing(conn, record)
+            conn.commit()
+            return record
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def save(self, record: RunRecord) -> None:
         """Upsert run record."""
@@ -319,16 +366,30 @@ class RunStore:
     def mark_parent_complete(self, record: RunRecord) -> int:
         """Increment completed parent count; return new total."""
 
-        record.completed_parent_count += 1
-        self.save(record)
-        return record.completed_parent_count
+        updated = self._mutate_run(
+            record.run_id,
+            lambda latest: setattr(
+                latest,
+                "completed_parent_count",
+                latest.completed_parent_count + 1,
+            ),
+        )
+        record.completed_parent_count = updated.completed_parent_count
+        return updated.completed_parent_count
 
     def mark_child_complete(self, record: RunRecord) -> int:
         """Increment completed child count; return new total."""
 
-        record.completed_child_count += 1
-        self.save(record)
-        return record.completed_child_count
+        updated = self._mutate_run(
+            record.run_id,
+            lambda latest: setattr(
+                latest,
+                "completed_child_count",
+                latest.completed_child_count + 1,
+            ),
+        )
+        record.completed_child_count = updated.completed_child_count
+        return updated.completed_child_count
 
     def append_child_configs(
         self,
@@ -337,16 +398,22 @@ class RunStore:
     ) -> int:
         """Append child configs from a parent agent."""
 
-        record.child_configs.extend(configs)
-        self.save(record)
-        return len(record.child_configs)
+        updated = self._mutate_run(
+            record.run_id,
+            lambda latest: latest.child_configs.extend(configs),
+        )
+        record.child_configs = updated.child_configs
+        return len(updated.child_configs)
 
     def append_memo(self, record: RunRecord, memo: DecisionMemo) -> int:
         """Append one decision memo."""
 
-        record.memos.append(memo)
-        self.save(record)
-        return len(record.memos)
+        updated = self._mutate_run(
+            record.run_id,
+            lambda latest: latest.memos.append(memo),
+        )
+        record.memos = updated.memos
+        return len(updated.memos)
 
     def mark_idempotent(self, record: RunRecord, key: str) -> None:
         """Record a processed spawn idempotency key (legacy helper)."""
@@ -395,7 +462,9 @@ class RunStore:
         if not key:
             return
 
-        with self._connect() as conn:
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
             conn.execute(
                 """
                 UPDATE idempotency_claims
@@ -404,9 +473,18 @@ class RunStore:
                 """,
                 (run_id, key),
             )
+            latest = self._load_for_update(conn, run_id)
+            if key not in latest.processed_idempotency_keys:
+                latest.processed_idempotency_keys.append(key)
+            self._write_existing(conn, latest)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
         if key not in record.processed_idempotency_keys:
             record.processed_idempotency_keys.append(key)
-        self.save(record)
 
     def release_idempotency_claim(self, run_id: str, key: str) -> None:
         """Release an in-flight claim so a retriable failure can be redelivered."""
@@ -429,13 +507,14 @@ def _record_to_json(record: RunRecord) -> dict[str, Any]:
         "run_id": record.run_id,
         "correlation_id": record.correlation_id,
         "task_description": record.task_description,
+        "execution_mode": record.execution_mode,
         "phase": record.phase,
         "status": record.status,
         "error_detail": record.error_detail,
         "evidence_records": record.evidence_records,
-        "parent_configs": [c.model_dump() for c in record.parent_configs],
-        "child_configs": [c.model_dump() for c in record.child_configs],
-        "memos": [m.model_dump() for m in record.memos],
+        "parent_configs": _dump_model_list(record.parent_configs),
+        "child_configs": _dump_model_list(record.child_configs),
+        "memos": _dump_model_list(record.memos),
         "ranked_strategies": record.ranked_strategies,
         "final_recommendation": record.final_recommendation,
         "evaluator_error": record.evaluator_error,
@@ -461,6 +540,7 @@ def _record_from_json(data: dict[str, Any]) -> RunRecord:
         run_id=data["run_id"],
         correlation_id=data["correlation_id"],
         task_description=data["task_description"],
+        execution_mode=data.get("execution_mode", "standard"),
         phase=data.get("phase", "created"),
         status=data.get("status", "running"),
         error_detail=data.get("error_detail"),
@@ -490,3 +570,15 @@ def _record_from_json(data: dict[str, Any]) -> RunRecord:
         completed_child_count=int(data.get("completed_child_count", 0)),
         processed_idempotency_keys=list(data.get("processed_idempotency_keys") or []),
     )
+
+
+def _dump_model_list(items: list[Any]) -> list[dict[str, Any]]:
+    dumped: list[dict[str, Any]] = []
+    for item in items:
+        if item is None:
+            continue
+        if hasattr(item, "model_dump"):
+            dumped.append(item.model_dump())
+        elif isinstance(item, dict):
+            dumped.append(dict(item))
+    return dumped

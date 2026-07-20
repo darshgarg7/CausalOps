@@ -80,9 +80,16 @@ def causal_synthesis_node(state: GraphState):
                 "evaluator_text": evaluator_text,
             }
         )
-        if isinstance(payload, dict):
+        if payload is None:
+            logger.warning(
+                "Causal architect returned empty structured output; using fallback"
+            )
+            payload_dict = _fallback_causal_payload(memos)
+        elif isinstance(payload, dict):
             payload = CausalPayload(**payload)
-        payload_dict = payload.model_dump()
+            payload_dict = payload.model_dump()
+        else:
+            payload_dict = payload.model_dump()
         payload_dict["graph"] = _sanitize_graph(payload_dict.get("graph", {}))
 
     publish_artifact(
@@ -212,10 +219,212 @@ def dowhy_engine_node(state: GraphState):
         "causal_discovery_report": discovery_dict,
         "dowhy_results": legacy_results,
         "causal_estimate_report": report_dict,
-        "causal_dataset_profile": compilation.profile.model_dump(),
+        "causal_dataset_profile": _model_dump_or_empty(compilation.profile),
         "causal_refutation_passed": report.refutation_passed,
         "causal_refutation_attempts": attempts,
     }
+
+
+def _fallback_causal_payload(memos: list[Any]) -> dict[str, Any]:
+    """Return a compact measurable hypothesis when structured LLM output is empty."""
+
+    top_strategy = ""
+    if memos:
+        top_strategy = str(_memo_value(memos[0], "strategy", "") or "")
+    return {
+        "graph": {
+            "nodes": [
+                {
+                    "id": "asset_exposure",
+                    "label": "Asset exposure",
+                    "description": (
+                        "Pre-incident exposure from vulnerable assets, identity "
+                        "reach, or public attack surface"
+                    ),
+                },
+                {
+                    "id": "detection_coverage",
+                    "label": "Detection coverage",
+                    "description": (
+                        "Telemetry and alerting coverage available before "
+                        "containment"
+                    ),
+                },
+                {
+                    "id": "containment_action",
+                    "label": "Containment action",
+                    "description": top_strategy or "Recommended response action",
+                },
+                {
+                    "id": "adversary_dwell_time",
+                    "label": "Adversary dwell time",
+                    "description": (
+                        "Time and freedom available for lateral movement or "
+                        "impact staging"
+                    ),
+                },
+                {
+                    "id": "adversary_impact",
+                    "label": "Adversary impact",
+                    "description": (
+                        "Observed attacker progress, data loss, service "
+                        "disruption, or business impact"
+                    ),
+                },
+            ],
+            "edges": [
+                {
+                    "source": "asset_exposure",
+                    "target": "adversary_dwell_time",
+                    "relationship": (
+                        "Exposure increases reachable paths before containment"
+                    ),
+                    "required_evidence": ["asset inventory", "external exposure scan"],
+                    "falsification_tests": [
+                        "no exposed assets share the incident path"
+                    ],
+                },
+                {
+                    "source": "detection_coverage",
+                    "target": "containment_action",
+                    "relationship": (
+                        "Telemetry quality changes how quickly containment can start"
+                    ),
+                    "required_evidence": ["alert timeline", "logging coverage map"],
+                    "falsification_tests": [
+                        "containment starts before any detection signal"
+                    ],
+                },
+                {
+                    "source": "containment_action",
+                    "target": "adversary_dwell_time",
+                    "relationship": "Response actions reduce adversary operating time",
+                    "required_evidence": [
+                        "control change log",
+                        "session revocation log",
+                    ],
+                    "falsification_tests": [
+                        "adversary activity continues on contained assets"
+                    ],
+                },
+                {
+                    "source": "adversary_dwell_time",
+                    "target": "adversary_impact",
+                    "relationship": (
+                        "Longer dwell time increases blast radius and impact"
+                    ),
+                    "required_evidence": [
+                        "incident timeline",
+                        "lateral movement telemetry",
+                    ],
+                    "falsification_tests": ["impact precedes observed dwell window"],
+                },
+                {
+                    "source": "asset_exposure",
+                    "target": "adversary_impact",
+                    "relationship": "Exposure can confound observed impact",
+                    "required_evidence": ["asset inventory", "identity access logs"],
+                    "falsification_tests": ["similar exposure has different outcome"],
+                },
+                {
+                    "source": "detection_coverage",
+                    "target": "adversary_impact",
+                    "relationship": (
+                        "Detection gaps can confound measured response effectiveness"
+                    ),
+                    "required_evidence": [
+                        "SIEM coverage",
+                        "EDR coverage",
+                        "missed alert review",
+                    ],
+                    "falsification_tests": [
+                        "coverage is uniform across impacted and clean assets"
+                    ],
+                },
+            ],
+            "treatment_variable": "containment_action",
+            "outcome_variable": "adversary_impact",
+            "candidate_confounders": ["asset_exposure", "detection_coverage"],
+        },
+        "measurement_plan": [
+            {
+                "variable": "asset_exposure",
+                "description": "Exposure or access level before intervention",
+                "evidence_fields": [
+                    "asset_criticality",
+                    "privilege_level",
+                    "internet_exposed",
+                ],
+                "aggregation": "numeric exposure score by asset or incident",
+                "expected_type": "continuous",
+            },
+            {
+                "variable": "detection_coverage",
+                "description": "Whether relevant telemetry existed before containment",
+                "evidence_fields": ["siem_coverage", "edr_coverage", "alert_present"],
+                "aggregation": "coverage score by asset or incident",
+                "expected_type": "continuous",
+            },
+            {
+                "variable": "containment_action",
+                "description": "Whether containment was applied before escalation",
+                "evidence_fields": ["control_action", "timestamp"],
+                "aggregation": "binary indicator by incident",
+                "expected_type": "binary",
+            },
+            {
+                "variable": "adversary_dwell_time",
+                "description": (
+                    "Duration between first observed compromise and containment"
+                ),
+                "evidence_fields": [
+                    "first_seen_at",
+                    "contained_at",
+                    "last_activity_at",
+                ],
+                "aggregation": "elapsed hours by asset or incident",
+                "expected_type": "continuous",
+            },
+            {
+                "variable": "adversary_impact",
+                "description": "Observed adversary progress or loss magnitude",
+                "evidence_fields": ["impact_score", "incident_status"],
+                "aggregation": "numeric severity by incident",
+                "expected_type": "continuous",
+            },
+        ],
+        "edge_evidence_requirements": [
+            {
+                "edge": "asset_exposure->adversary_dwell_time",
+                "confirming_evidence": [
+                    "exposed assets show earlier or broader attacker reach"
+                ],
+                "falsifying_evidence": [
+                    "no exposure difference between affected and clean assets"
+                ],
+            },
+            {
+                "edge": "containment_action->adversary_dwell_time",
+                "confirming_evidence": ["activity drops after containment timestamps"],
+                "falsifying_evidence": ["activity persists after containment"],
+            },
+            {
+                "edge": "adversary_dwell_time->adversary_impact",
+                "confirming_evidence": ["longer dwell windows map to higher impact"],
+                "falsifying_evidence": ["impact occurs before dwell is observed"],
+            },
+        ],
+    }
+
+
+def _model_dump_or_empty(value: Any) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if hasattr(value, "model_dump"):
+        return value.model_dump()
+    if isinstance(value, dict):
+        return value
+    return {}
 
 
 def _format_memo(memo: Any) -> str:

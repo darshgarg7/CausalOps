@@ -120,6 +120,11 @@ class RunRequest(BaseModel):
         default=None,
         description="Optional normalized evidence records for causal estimation.",
     )
+    execution_mode: str = Field(
+        default="standard",
+        pattern="^(standard|deep)$",
+        description="Execution depth: standard for fast runs, deep for full swarm.",
+    )
 
 
 class EstimateRequest(BaseModel):
@@ -212,6 +217,7 @@ async def _execute_run_background(
     run_id: str,
     task_description: str,
     evidence_records: list[dict[str, Any]] | None,
+    execution_mode: str,
 ) -> None:
     """Run HiveMind in the background for async POST /run."""
 
@@ -221,6 +227,7 @@ async def _execute_run_background(
                 task_description,
                 evidence_records=evidence_records,
                 run_id=run_id,
+                execution_mode=execution_mode,
             )
         except Exception:
             logger.exception("Background run failed for run_id=%s", run_id)
@@ -248,6 +255,7 @@ async def get_run_status(run_id: str):
     payload: dict[str, Any] = {
         "run_id": run_id,
         "status": effective_status,
+        "execution_mode": record.execution_mode,
     }
     if record.error_detail:
         payload["error"] = record.error_detail
@@ -388,12 +396,14 @@ async def enqueue_run(request: RunRequest):
         correlation_id=run_id,
         task_description=request.task_description,
         evidence_records=request.evidence_records,
+        execution_mode=request.execution_mode,
     )
     asyncio.create_task(
         _execute_run_background(
             run_id=run_id,
             task_description=request.task_description,
             evidence_records=request.evidence_records,
+            execution_mode=request.execution_mode,
         )
     )
     logger.info("Enqueued HiveMind run_id=%s", run_id)
@@ -413,6 +423,7 @@ async def run_engine_sync(request: RunRequest):
             request.task_description,
             evidence_records=request.evidence_records,
             run_id=request.run_id,
+            execution_mode=request.execution_mode,
         )
         logger.info(
             "Successfully generated output for run_id: %s",
@@ -444,7 +455,7 @@ async def estimate_from_evidence(request: EstimateRequest):
     )
     return {
         "causal_estimate_report": report.model_dump(),
-        "causal_dataset_profile": compilation.profile.model_dump(),
+        "causal_dataset_profile": _model_dump_or_empty(compilation.profile),
         "provenance": compilation.provenance,
     }
 
@@ -505,6 +516,16 @@ async def demo_estimate():
         "scenario": "patching reduces observed lateral movement",
         "graph": graph,
         "causal_estimate_report": report.model_dump(),
-        "causal_dataset_profile": compilation.profile.model_dump(),
+        "causal_dataset_profile": _model_dump_or_empty(compilation.profile),
         "provenance_sample": compilation.provenance[:5],
     }
+
+
+def _model_dump_or_empty(value: Any) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if hasattr(value, "model_dump"):
+        return value.model_dump()
+    if isinstance(value, dict):
+        return value
+    return {}
