@@ -418,24 +418,25 @@ async def run_engine_sync(request: RunRequest):
     """Blocking run endpoint retained for scripts and integration tests."""
 
     logger.info("Received synchronous request to run HiveMind engine")
-    try:
-        result = await run_hivemind(
-            request.task_description,
-            evidence_records=request.evidence_records,
-            run_id=request.run_id,
-            execution_mode=request.execution_mode,
-        )
-        logger.info(
-            "Successfully generated output for run_id: %s",
-            result.get("run_id"),
-        )
-        return result
-    except Exception as exc:
-        logger.exception("Error executing run_hivemind")
-        raise HTTPException(
-            status_code=500,
-            detail="HiveMind execution failed. See API logs for details.",
-        ) from exc
+    async with run_slots:
+        try:
+            result = await run_hivemind(
+                request.task_description,
+                evidence_records=request.evidence_records,
+                run_id=request.run_id,
+                execution_mode=request.execution_mode,
+            )
+            logger.info(
+                "Successfully generated output for run_id: %s",
+                result.get("run_id"),
+            )
+            return result
+        except Exception as exc:
+            logger.exception("Error executing run_hivemind")
+            raise HTTPException(
+                status_code=500,
+                detail="HiveMind execution failed. See API logs for details.",
+            ) from exc
 
 
 @app.post("/estimate")
