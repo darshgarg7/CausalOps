@@ -3,6 +3,14 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "./tests/visual",
   timeout: 30_000,
+  // These specs share a single dev server (see webServer below) and
+  // interact with real canvas rendering, force-simulation settling, and
+  // animated zoomToFit transitions — all CPU-timing-sensitive. Running
+  // workers in parallel starves the shared dev server and browser
+  // processes of CPU, which manifests as spurious content/click timeouts
+  // that have nothing to do with the app itself. One worker trades a
+  // little wall-clock time for deterministic results.
+  workers: 1,
   expect: {
     timeout: 10_000,
     toHaveScreenshot: {

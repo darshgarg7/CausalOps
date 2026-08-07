@@ -1,7 +1,6 @@
 import { forwardRef, lazy, Suspense, useImperativeHandle, useRef } from "react";
 import { ClientOnly } from "@tanstack/react-router";
 import type { CausalGraph as CausalGraphData, CausalNode, CausalEdge } from "@/lib/hivemind-types";
-import type { EdgeAnnotation } from "@/lib/agent-runtime";
 
 export interface CausalGraphHandle {
   getCanvas: () => HTMLCanvasElement | null;
@@ -13,7 +12,6 @@ interface CausalGraphProps {
   onSelectNode?: (node: CausalNode | null) => void;
   onSelectEdge?: (edge: CausalEdge | null) => void;
   height?: number;
-  edgeAnnotations?: EdgeAnnotation[];
 }
 
 // Lazy-load the client-only implementation. react-force-graph-2d touches

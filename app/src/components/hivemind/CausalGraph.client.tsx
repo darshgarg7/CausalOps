@@ -10,7 +10,7 @@ import {
 import ForceGraph2D, { type ForceGraphMethods } from "react-force-graph-2d";
 import { Crosshair, Maximize2, Minimize2, RotateCcw, Tag, TagsIcon } from "lucide-react";
 import type { CausalGraph as CausalGraphData, CausalNode, CausalEdge } from "@/lib/hivemind-types";
-import type { EdgeAnnotation } from "@/lib/agent-runtime";
+import { edgeStrokeWidth, edgeVisualStyle } from "@/lib/causal-validation";
 import { cn } from "@/lib/utils";
 
 export interface CausalGraphHandle {
@@ -23,11 +23,19 @@ interface CausalGraphProps {
   onSelectNode?: (node: CausalNode | null) => void;
   onSelectEdge?: (edge: CausalEdge | null) => void;
   height?: number;
-  edgeAnnotations?: EdgeAnnotation[];
 }
 
 type GNode = CausalNode & { __indeg?: number; __outdeg?: number; x?: number; y?: number };
 type GLink = CausalEdge;
+
+// Dim an `rgba(r, g, b, a)` string produced by edgeVisualStyle() by
+// substituting its alpha channel; falls back to the input unchanged if it
+// isn't in that shape.
+function withAlpha(rgba: string, alpha: number): string {
+  const match = rgba.match(/^rgba\(([^,]+),([^,]+),([^,]+),[^)]+\)$/);
+  if (!match) return rgba;
+  return `rgba(${match[1]},${match[2]},${match[3]},${alpha})`;
+}
 
 // react-force-graph mutates source/target from string ids into the node objects
 // after the first simulation tick. Helper normalizes both shapes safely.
@@ -40,10 +48,7 @@ function endpointId(end: unknown): string {
 }
 
 export const CausalGraphClient = forwardRef<CausalGraphHandle, CausalGraphProps>(
-  function CausalGraphClient(
-    { graph, onSelectNode, onSelectEdge, height = 480, edgeAnnotations },
-    ref,
-  ) {
+  function CausalGraphClient({ graph, onSelectNode, onSelectEdge, height = 480 }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const fgRef = useRef<ForceGraphMethods<GNode, GLink> | undefined>(undefined);
     const [size, setSize] = useState({ w: 800, h: height });
@@ -70,25 +75,6 @@ export const CausalGraphClient = forwardRef<CausalGraphHandle, CausalGraphProps>
       return { nodes, links };
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [graphStr]);
-
-    // Annotation lookup
-    const annByKey = useMemo(() => {
-      const m = new Map<string, EdgeAnnotation>();
-      if (edgeAnnotations) for (const a of edgeAnnotations) m.set(a.key, a);
-      return m;
-    }, [edgeAnnotations]);
-
-    // Convert oklch CSS var to a usable canvas color via a runtime helper that
-    // resolves the computed style once per render.
-    const evidenceCanvasColor = useCallback((type: EdgeAnnotation["evidenceType"], alpha = 1) => {
-      const map: Record<EdgeAnnotation["evidenceType"], string> = {
-        telemetry: `rgba(80, 220, 170, ${alpha})`,
-        external_intel: `rgba(120, 220, 255, ${alpha})`,
-        heuristic: `rgba(245, 200, 100, ${alpha})`,
-        model_inferred: `rgba(190, 150, 255, ${alpha})`,
-      };
-      return map[type];
-    }, []);
 
     // Neighbor index for highlight
     const neighborIndex = useMemo(() => {
@@ -228,25 +214,23 @@ export const CausalGraphClient = forwardRef<CausalGraphHandle, CausalGraphProps>
             linkDirectionalArrowLength={4}
             linkDirectionalArrowRelPos={0.92}
             linkWidth={(l) => {
+              const link = l as GLink;
               const sId = endpointId((l as { source: unknown }).source);
               const tId = endpointId((l as { target: unknown }).target);
               const isActive = activeId && (sId === activeId || tId === activeId);
-              const ann = annByKey.get(`${sId}->${tId}`);
-              const base = ann ? 0.8 + ann.confidence * 1.6 : 1;
-              return isActive ? base + 1 : base;
+              return edgeStrokeWidth(link, Boolean(isActive));
             }}
             linkColor={(l) => {
+              const link = l as GLink;
               const sId = endpointId((l as { source: unknown }).source);
               const tId = endpointId((l as { target: unknown }).target);
               const isActive = activeId && (sId === activeId || tId === activeId);
               const dim = activeId && !isActive;
-              const ann = annByKey.get(`${sId}->${tId}`);
-              if (ann) {
-                const a = dim ? 0.18 : 0.45 + ann.confidence * 0.45;
-                return evidenceCanvasColor(ann.evidenceType, a);
-              }
-              return dim ? "rgba(168, 145, 255, 0.12)" : "rgba(168, 145, 255, 0.6)";
+              return dim
+                ? withAlpha(edgeVisualStyle(link).color, 0.15)
+                : edgeVisualStyle(link).color;
             }}
+            linkLineDash={(l) => edgeVisualStyle(l as GLink).dash}
             linkDirectionalParticles={(l) => {
               const sId = endpointId((l as { source: unknown }).source);
               const tId = endpointId((l as { target: unknown }).target);

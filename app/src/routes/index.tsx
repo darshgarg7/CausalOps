@@ -189,7 +189,7 @@ function Index() {
   );
 
   return (
-    <main className="relative z-10 mx-auto min-h-screen w-full max-w-7xl px-4 py-10 sm:px-6 sm:py-14">
+    <main className="relative z-10 mx-auto min-h-screen w-full max-w-[1728px] px-4 py-10 sm:px-6 sm:py-14">
       {/* Header */}
       <header className="mb-10 flex flex-col items-start justify-between gap-6 sm:flex-row sm:items-center">
         <div className="flex items-center gap-3">
@@ -327,9 +327,14 @@ function Index() {
               ref={graphRef}
               graph={result.causal_graph ?? { nodes: [], edges: [] }}
               runId={result.run_id}
-              edgeAnnotations={observability?.edges}
             />
-            {observability && <CausalObservabilityPanel trace={observability} />}
+            {observability && (
+              <CausalObservabilityPanel
+                trace={observability}
+                graph={result.causal_graph ?? { nodes: [], edges: [] }}
+                estimateReport={result.causal_estimate_report}
+              />
+            )}
           </div>
         )}
       </div>

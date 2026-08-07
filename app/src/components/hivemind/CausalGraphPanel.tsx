@@ -4,16 +4,20 @@ import type { CausalEdge, CausalGraph, CausalNode } from "@/lib/hivemind-types";
 import { CausalGraph as CausalGraphViz, type CausalGraphHandle } from "./CausalGraph";
 import { NodeInspector } from "./NodeInspector";
 import { cn } from "@/lib/utils";
-import { evidenceColor, evidenceLabel, type EdgeAnnotation } from "@/lib/agent-runtime";
+import {
+  edgeStatusCounts,
+  edgeVisualStyle,
+  graphDiscoveryAvailable,
+  type EdgeValidationStatus,
+} from "@/lib/causal-validation";
 
 interface CausalGraphPanelProps {
   graph: CausalGraph;
-  edgeAnnotations?: EdgeAnnotation[];
   compact?: boolean;
 }
 
 export const CausalGraphPanel = forwardRef<CausalGraphHandle, CausalGraphPanelProps>(
-  function CausalGraphPanel({ graph, edgeAnnotations, compact = false }, ref) {
+  function CausalGraphPanel({ graph, compact = false }, ref) {
     const nodes = graph?.nodes ?? [];
     const edges = graph?.edges ?? [];
     const [view, setView] = useState<"graph" | "table">("graph");
@@ -21,11 +25,8 @@ export const CausalGraphPanel = forwardRef<CausalGraphHandle, CausalGraphPanelPr
     const [selectedEdge, setSelectedEdge] = useState<CausalEdge | null>(null);
     const isSparseGraph = nodes.length > 0 && nodes.length <= 6;
 
-    const annByKey = useMemo(() => {
-      const m = new Map<string, EdgeAnnotation>();
-      if (edgeAnnotations) for (const a of edgeAnnotations) m.set(a.key, a);
-      return m;
-    }, [edgeAnnotations]);
+    const discoveryAvailable = useMemo(() => graphDiscoveryAvailable(graph), [graph]);
+    const statusCounts = useMemo(() => edgeStatusCounts(graph), [graph]);
     const orderedNodes = useMemo(() => orderNodes(graph), [graph]);
 
     return (
@@ -42,11 +43,22 @@ export const CausalGraphPanel = forwardRef<CausalGraphHandle, CausalGraphPanelPr
               <span>{nodes.length} nodes</span>
               <span className="text-white/20">·</span>
               <span>{edges.length} edges</span>
-              {edgeAnnotations && edgeAnnotations.length > 0 && (
+              {discoveryAvailable ? (
                 <>
                   <span className="text-white/20">·</span>
-                  <span className="text-emerald-300/80">
-                    {edgeAnnotations.filter((e) => e.validated).length} validated
+                  <span className="text-emerald-300/80">{statusCounts.confirmed} confirmed</span>
+                  {statusCounts.refuted > 0 && (
+                    <>
+                      <span className="text-white/20">·</span>
+                      <span className="text-rose-300/80">{statusCounts.refuted} refuted</span>
+                    </>
+                  )}
+                </>
+              ) : (
+                <>
+                  <span className="text-white/20">·</span>
+                  <span title="Conditional-independence testing has not run for this graph yet.">
+                    discovery unavailable
                   </span>
                 </>
               )}
@@ -94,7 +106,6 @@ export const CausalGraphPanel = forwardRef<CausalGraphHandle, CausalGraphPanelPr
                 <CausalDAGBoard
                   graph={graph}
                   orderedNodes={orderedNodes}
-                  edgeAnnotations={edgeAnnotations}
                   compact={compact}
                   onSelectNode={(node) => {
                     setSelectedNode(node);
@@ -109,7 +120,6 @@ export const CausalGraphPanel = forwardRef<CausalGraphHandle, CausalGraphPanelPr
                 <CausalGraphViz
                   ref={ref}
                   graph={graph}
-                  edgeAnnotations={edgeAnnotations}
                   onSelectNode={(n) => {
                     setSelectedNode(n);
                     if (n) setSelectedEdge(null);
@@ -121,6 +131,7 @@ export const CausalGraphPanel = forwardRef<CausalGraphHandle, CausalGraphPanelPr
                   height={compact ? 420 : 480}
                 />
               )}
+              <EdgeStatusLegend available={discoveryAvailable} />
             </div>
             <aside
               className={cn("bg-[oklch(0.16_0.03_260/0.6)]", compact && "border-t border-white/5")}
@@ -184,45 +195,34 @@ export const CausalGraphPanel = forwardRef<CausalGraphHandle, CausalGraphPanelPr
                   <p className="px-4 py-8 text-center text-sm text-muted-foreground">No edges.</p>
                 ) : (
                   <ul className="space-y-1.5 px-2 py-1">
-                    {edges.map((e, i) => {
-                      const ann = annByKey.get(`${e.source}->${e.target}`);
-                      return (
-                        <li
-                          key={`${e.source}-${e.target}-${i}`}
-                          className="group flex flex-wrap items-center gap-2 rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2.5 transition-colors hover:border-[color:var(--neon-violet)]/30 hover:bg-white/[0.04]"
-                        >
-                          <span className="font-mono text-xs text-[color:var(--neon-cyan)]">
-                            {e.source}
+                    {edges.map((e, i) => (
+                      <li
+                        key={`${e.source}-${e.target}-${i}`}
+                        className="group flex flex-wrap items-center gap-2 rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2.5 transition-colors hover:border-[color:var(--neon-violet)]/30 hover:bg-white/[0.04]"
+                      >
+                        <span className="font-mono text-xs text-[color:var(--neon-cyan)]">
+                          {e.source}
+                        </span>
+                        <div className="flex items-center gap-1.5 text-muted-foreground">
+                          <ArrowRight className="h-3 w-3" aria-hidden />
+                          <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-wider">
+                            {e.relationship}
                           </span>
-                          <div className="flex items-center gap-1.5 text-muted-foreground">
-                            <ArrowRight className="h-3 w-3" aria-hidden />
-                            <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-wider">
-                              {e.relationship}
-                            </span>
-                            <ArrowRight className="h-3 w-3" aria-hidden />
-                          </div>
-                          <span className="font-mono text-xs text-[color:var(--neon-violet)]">
-                            {e.target}
-                          </span>
-                          {ann && (
-                            <span className="ml-auto flex items-center gap-1.5">
-                              <span
-                                className="rounded-full px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider"
-                                style={{
-                                  color: evidenceColor(ann.evidenceType),
-                                }}
-                                title={ann.evidenceSummary}
-                              >
-                                {evidenceLabel(ann.evidenceType)}
-                              </span>
-                              <span className="font-mono text-[10px] tabular-nums text-foreground/85">
-                                {Math.round(ann.confidence * 100)}%
-                              </span>
+                          <ArrowRight className="h-3 w-3" aria-hidden />
+                        </div>
+                        <span className="font-mono text-xs text-[color:var(--neon-violet)]">
+                          {e.target}
+                        </span>
+                        <span className="ml-auto flex items-center gap-1.5">
+                          <EdgeStatusBadge edge={e} />
+                          {typeof e.p_value === "number" && (
+                            <span className="font-mono text-[10px] tabular-nums text-foreground/85">
+                              p={e.p_value.toFixed(3)}
                             </span>
                           )}
-                        </li>
-                      );
-                    })}
+                        </span>
+                      </li>
+                    ))}
                   </ul>
                 )}
               </div>
@@ -237,24 +237,17 @@ export const CausalGraphPanel = forwardRef<CausalGraphHandle, CausalGraphPanelPr
 function CausalDAGBoard({
   graph,
   orderedNodes,
-  edgeAnnotations,
   compact,
   onSelectNode,
   onSelectEdge,
 }: {
   graph: CausalGraph;
   orderedNodes: CausalNode[];
-  edgeAnnotations?: EdgeAnnotation[];
   compact: boolean;
   onSelectNode: (node: CausalNode) => void;
   onSelectEdge: (edge: CausalEdge) => void;
 }) {
   const stages = useMemo(() => buildStages(graph, orderedNodes), [graph, orderedNodes]);
-  const annByKey = useMemo(() => {
-    const map = new Map<string, EdgeAnnotation>();
-    for (const annotation of edgeAnnotations ?? []) map.set(annotation.key, annotation);
-    return map;
-  }, [edgeAnnotations]);
 
   return (
     <div className="space-y-3">
@@ -317,7 +310,6 @@ function CausalDAGBoard({
         </header>
         <div className="space-y-2 p-2">
           {graph.edges.map((edge, index) => {
-            const ann = annByKey.get(`${edge.source}->${edge.target}`);
             return (
               <button
                 type="button"
@@ -333,14 +325,7 @@ function CausalDAGBoard({
                   <span className="font-mono text-[color:var(--neon-violet)]">
                     {shortId(edge.target)}
                   </span>
-                  {ann && (
-                    <span
-                      className="rounded-full border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider"
-                      style={{ color: evidenceColor(ann.evidenceType) }}
-                    >
-                      {evidenceLabel(ann.evidenceType)}
-                    </span>
-                  )}
+                  <EdgeStatusBadge edge={edge} />
                 </span>
                 <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
                   {edge.relationship}
@@ -479,4 +464,52 @@ function nodePriority(graph: CausalGraph, nodeId: string) {
   if (graph.treatment_variable === nodeId) return 1;
   if (graph.outcome_variable === nodeId) return 3;
   return 2;
+}
+
+/** Status pill for one edge, derived only from the edge's own backend fields. */
+function EdgeStatusBadge({ edge }: { edge: CausalEdge }) {
+  const style = edgeVisualStyle(edge);
+  return (
+    <span
+      className="rounded-full border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider"
+      style={{ color: style.color, borderColor: style.color }}
+      title={edge.validation_detail || style.label}
+    >
+      {style.shortLabel}
+    </span>
+  );
+}
+
+const LEGEND_STATUSES: EdgeValidationStatus[] = [
+  "confirmed",
+  "compatible",
+  "discovered",
+  "reversed",
+  "refuted",
+  "hypothesized",
+];
+
+/** Legend mapping edge status to color — no confidence percentages, only real backend verdicts. */
+function EdgeStatusLegend({ available }: { available: boolean }) {
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-3 px-1 font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
+      <span>
+        {available
+          ? "Edge status:"
+          : "Edge status (discovery unavailable — showing hypothesized structure):"}
+      </span>
+      {LEGEND_STATUSES.map((status) => {
+        const style = edgeVisualStyle({ status });
+        return (
+          <span key={status} className="flex items-center gap-1.5">
+            <span
+              className="h-1 w-5 rounded"
+              style={{ background: style.color, boxShadow: `0 0 6px ${style.color}` }}
+            />
+            {style.shortLabel}
+          </span>
+        );
+      })}
+    </div>
+  );
 }

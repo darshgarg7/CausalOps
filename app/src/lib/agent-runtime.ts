@@ -10,12 +10,21 @@
  *   - hierarchical agents (Grand Orchestrator → Domain Parents → Atomic Children)
  *   - per-agent activation reason + triggering hypothesis + parent
  *   - rejected counterfactual branches with why they were pruned
- *   - causal-edge annotations (confidence, evidence type, directionality)
+ *   - which graph edges each illustrative agent is attributed to
  *   - a chronological decision log suitable for replay
  *
- * This is presented in the UI behind a "Derived overlay" badge so the
- * analyst knows it is a synthetic reconstruction layered on top of the
- * real backend response, not a live agent stream.
+ * This is presented in the UI behind a "Derived overlay" / "Illustrative"
+ * badge so the analyst knows it is a synthetic reconstruction layered on top
+ * of the real backend response, not a live agent stream.
+ *
+ * IMPORTANT: this module must never represent causal validation. It used to
+ * attach a pseudo-random `confidence`, `evidenceType`, and a synthetic
+ * "DoWhy-style" refutation score to graph edges — those were fabricated
+ * numbers with no relationship to the backend's real causal discovery
+ * (causal_discovery.py) or refutation (estimators.py) output, and have been
+ * removed. Real per-edge validation status/strength and real refutation
+ * results live on `CausalGraph.edges[]` / `CausalEstimateReport` — see
+ * `causal-validation.ts` — and must be used for any causal-validity display.
  */
 import type { CausalEdge, CausalGraph, RunResponse, Strategy } from "./hivemind-types";
 import type { ScenarioState } from "./scenario-builder";
@@ -31,8 +40,6 @@ export type DomainKey =
   | "supply_chain"
   | "insider"
   | "data";
-
-export type EvidenceType = "telemetry" | "heuristic" | "model_inferred" | "external_intel";
 
 export interface AgentNode {
   id: string;
@@ -62,22 +69,24 @@ export interface AgentNode {
   completedAtMs: number;
 }
 
+/**
+ * Structural attribution only: which illustrative agent "owns" a real graph
+ * edge. Carries no confidence/evidence-type/validation claim — those come
+ * from the backend's real causal_graph.edges[]/causal_estimate_report (see
+ * causal-validation.ts), never from this simulator.
+ */
 export interface EdgeAnnotation {
   key: string; // `${source}->${target}`
   source: string;
   target: string;
   relationship: string;
-  confidence: number; // 0..1
-  evidenceType: EvidenceType;
-  evidenceSummary: string;
   attributedAgentId: string;
-  validated: boolean; // true if backed by telemetry / external intel
 }
 
 export interface DecisionLogEntry {
   tMs: number;
   agentId: string;
-  kind: "spawn" | "reject" | "prune" | "hypothesis" | "evidence" | "merge" | "validate";
+  kind: "spawn" | "reject" | "prune" | "hypothesis" | "evidence" | "merge";
   message: string;
 }
 
@@ -89,16 +98,6 @@ export interface ObservabilityTrace {
   domainsActivated: DomainKey[];
   domainsRejected: { domain: DomainKey; reason: string }[];
   totalDurationMs: number;
-  // Aggregate validation metrics derived from edges
-  validation: {
-    totalEdges: number;
-    validatedEdges: number;
-    avgConfidence: number;
-    avgValidatedConfidence: number;
-    placeboPassed: number;
-    placeboTotal: number;
-    refutationScore: number; // 0..1
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -149,28 +148,6 @@ function rng(seed: number) {
     s = (s * 1664525 + 1013904223) >>> 0;
     return s / 0xffffffff;
   };
-}
-
-function pickEvidence(rand: () => number, domain: DomainKey, hasTelemetry: boolean): EvidenceType {
-  const r = rand();
-  if (hasTelemetry && r < 0.45) return "telemetry";
-  if (r < 0.7) return "model_inferred";
-  if (r < 0.88) return "heuristic";
-  if (domain === "supply_chain" || domain === "cloud") return "external_intel";
-  return "model_inferred";
-}
-
-function evidenceSummary(type: EvidenceType, domain: DomainKey, rel: string): string {
-  switch (type) {
-    case "telemetry":
-      return `${DOMAIN_LABELS[domain]} telemetry corroborates "${rel}" relationship across observed events.`;
-    case "external_intel":
-      return `External threat intel (CTI feeds) validates "${rel}" pattern in recent ${DOMAIN_LABELS[domain]} campaigns.`;
-    case "heuristic":
-      return `Rule-based heuristic on ${DOMAIN_LABELS[domain]} surface implies "${rel}" with moderate confidence.`;
-    case "model_inferred":
-      return `Model-inferred from latent causal embeddings of similar ${DOMAIN_LABELS[domain]} kill chains.`;
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -358,43 +335,22 @@ export function buildObservabilityTrace(
     });
   }
 
-  // 4. Edge annotations — attribute each edge to the agent that "owns" the target node
+  // 4. Edge attribution — which illustrative agent "owns" each real graph
+  // edge. This is structural attribution only: no confidence, evidence
+  // type, or validation claim is attached here. Real per-edge validation
+  // status lives on the backend's causal_graph.edges[] (see
+  // causal-validation.ts) and must be read from there, not from this trace.
   const edges: EdgeAnnotation[] = [];
-  let confSum = 0;
-  let valConfSum = 0;
-  let validatedCount = 0;
   for (const e of graph.edges) {
     const key = `${e.source}->${e.target}`;
     const ownerAgent = nodeToAgent.get(e.target) ?? nodeToAgent.get(e.source) ?? orchestratorId;
     const ownerNode = agents.find((a) => a.id === ownerAgent);
-    const domain = ownerNode?.domain ?? "network";
-    const hasTel = /tel|edr|log|alert|siem/i.test(scenario.environment);
-    const evType = pickEvidence(rand, domain, hasTel);
-    const baseConf = 0.55 + rand() * 0.4;
-    const conf =
-      evType === "telemetry"
-        ? Math.min(0.98, baseConf + 0.1)
-        : evType === "external_intel"
-          ? Math.min(0.95, baseConf + 0.05)
-          : evType === "heuristic"
-            ? Math.max(0.45, baseConf - 0.1)
-            : baseConf;
-    const validated = evType === "telemetry" || evType === "external_intel";
-    confSum += conf;
-    if (validated) {
-      valConfSum += conf;
-      validatedCount += 1;
-    }
     edges.push({
       key,
       source: e.source,
       target: e.target,
       relationship: e.relationship,
-      confidence: Math.round(conf * 100) / 100,
-      evidenceType: evType,
-      evidenceSummary: evidenceSummary(evType, domain, e.relationship),
       attributedAgentId: ownerAgent,
-      validated,
     });
     // Attach edge key to owning agent
     if (ownerNode) ownerNode.contributedEdgeKeys.push(key);
@@ -402,7 +358,7 @@ export function buildObservabilityTrace(
       tMs: ownerNode?.completedAtMs ?? tCursor,
       agentId: ownerAgent,
       kind: "evidence",
-      message: `Edge ${e.source} → ${e.target} (${e.relationship}) · ${evType.replace("_", " ")} · ${(conf * 100).toFixed(0)}%`,
+      message: `Edge ${e.source} → ${e.target} (${e.relationship}) attributed to ${ownerNode?.label ?? ownerAgent}.`,
     });
   }
 
@@ -413,24 +369,6 @@ export function buildObservabilityTrace(
     agentId: orchestratorId,
     kind: "merge",
     message: `Causal Synthesis Layer merged ${activated.length} domain outputs into unified DAG (${graph.nodes.length} nodes, ${graph.edges.length} edges).`,
-  });
-
-  // 6. DoWhy-style validation pass
-  tCursor += 180;
-  const placeboTotal = Math.max(3, Math.min(8, Math.floor(graph.edges.length / 2)));
-  const placeboPassed = Math.max(
-    1,
-    placeboTotal - Math.floor(rand() * Math.max(1, Math.floor(placeboTotal * 0.3))),
-  );
-  const refutationScore = Math.max(
-    0.55,
-    Math.min(0.97, 0.7 + (placeboPassed / placeboTotal - 0.7) * 0.6),
-  );
-  log.push({
-    tMs: tCursor,
-    agentId: orchestratorId,
-    kind: "validate",
-    message: `DoWhy refutation pass: ${placeboPassed}/${placeboTotal} placebo tests passed · refutation score ${(refutationScore * 100).toFixed(0)}%.`,
   });
 
   // Boost orchestrator's contributed nodes (none — it's pure decomposition)
@@ -446,15 +384,6 @@ export function buildObservabilityTrace(
     domainsActivated: activated,
     domainsRejected: rejected,
     totalDurationMs,
-    validation: {
-      totalEdges: edges.length,
-      validatedEdges: validatedCount,
-      avgConfidence: edges.length ? confSum / edges.length : 0,
-      avgValidatedConfidence: validatedCount ? valConfSum / validatedCount : 0,
-      placeboPassed,
-      placeboTotal,
-      refutationScore,
-    },
   };
 
   // (strategies referenced for future use)
@@ -621,32 +550,6 @@ function atomicTaskKind(label: string): string {
 // ---------------------------------------------------------------------------
 // Convenience: lookup helpers
 // ---------------------------------------------------------------------------
-
-export function evidenceColor(t: EvidenceType): string {
-  switch (t) {
-    case "telemetry":
-      return "var(--neon-emerald)";
-    case "external_intel":
-      return "var(--neon-cyan)";
-    case "heuristic":
-      return "var(--neon-amber)";
-    case "model_inferred":
-      return "var(--neon-violet)";
-  }
-}
-
-export function evidenceLabel(t: EvidenceType): string {
-  switch (t) {
-    case "telemetry":
-      return "Telemetry";
-    case "external_intel":
-      return "External Intel";
-    case "heuristic":
-      return "Heuristic";
-    case "model_inferred":
-      return "Model-Inferred";
-  }
-}
 
 export function domainLabel(d: DomainKey): string {
   return DOMAIN_LABELS[d];
