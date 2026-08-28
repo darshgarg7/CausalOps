@@ -1,4 +1,4 @@
-"""Deterministic quality metrics for each HiveMind agent tier.
+"""Deterministic quality metrics for each CausalOps agent tier.
 
 These metrics are not a replacement for human review, but they give the demo a
 standardized scoreboard: every tier has an expected contract, an observed

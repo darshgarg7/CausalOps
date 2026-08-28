@@ -3,29 +3,32 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Brain, Crown, FileDown, Hexagon, History, Maximize2, Radar, UserCog } from "lucide-react";
 import { toast } from "sonner";
 
-import { ScenarioBuilder, type ScenarioBuilderHandle } from "@/components/hivemind/ScenarioBuilder";
-import { ExecutiveView } from "@/components/hivemind/ExecutiveView";
+import {
+  ScenarioBuilder,
+  type ScenarioBuilderHandle,
+} from "@/components/causalops/ScenarioBuilder";
+import { ExecutiveView } from "@/components/causalops/ExecutiveView";
 import { EMPTY_SCENARIO, type ScenarioState } from "@/lib/scenario-builder";
-import { MetricsBar } from "@/components/hivemind/MetricsBar";
-import { StrategiesGrid } from "@/components/hivemind/StrategiesGrid";
-import { GraphWorkspace } from "@/components/hivemind/GraphWorkspace";
-import { ErrorPanel } from "@/components/hivemind/ErrorPanel";
-import { ExecutionStream } from "@/components/hivemind/ExecutionStream";
-import { CausalObservabilityPanel } from "@/components/hivemind/CausalObservabilityPanel";
+import { MetricsBar } from "@/components/causalops/MetricsBar";
+import { StrategiesGrid } from "@/components/causalops/StrategiesGrid";
+import { GraphWorkspace } from "@/components/causalops/GraphWorkspace";
+import { ErrorPanel } from "@/components/causalops/ErrorPanel";
+import { ExecutionStream } from "@/components/causalops/ExecutionStream";
+import { CausalObservabilityPanel } from "@/components/causalops/CausalObservabilityPanel";
 import { buildObservabilityTrace } from "@/lib/agent-runtime";
-import { RunHistoryDrawer } from "@/components/hivemind/RunHistoryDrawer";
-import { PresenterMode } from "@/components/hivemind/PresenterMode";
+import { RunHistoryDrawer } from "@/components/causalops/RunHistoryDrawer";
+import { PresenterMode } from "@/components/causalops/PresenterMode";
 import { executeWithProgress } from "@/lib/execution-simulator";
-import { SchemaValidationError, type SchemaIssue } from "@/lib/hivemind-schema";
+import { SchemaValidationError, type SchemaIssue } from "@/lib/causalops-schema";
 import type {
   ExecutionEvent,
   ExecutionMode,
   HistoryEntry,
   RunResponse,
-} from "@/lib/hivemind-types";
+} from "@/lib/causalops-types";
 import { useRunHistory } from "@/hooks/use-run-history";
 import { exportRunReport } from "@/lib/pdf-export";
-import type { CausalGraphHandle } from "@/components/hivemind/CausalGraph";
+import type { CausalGraphHandle } from "@/components/causalops/CausalGraph";
 import { computeDerivedMetrics } from "@/lib/derived-metrics";
 
 export const Route = createFileRoute("/")({
@@ -145,7 +148,7 @@ function Index() {
         const isCurrent = entry.id === activeHistoryId;
         const canvas = isCurrent ? (graphRef.current?.getCanvas() ?? null) : null;
         await exportRunReport(entry, canvas);
-        toast.success("PDF exported", { description: `hivemind-${entry.runId}.pdf` });
+        toast.success("PDF exported", { description: `causalops-${entry.runId}.pdf` });
       } catch (err) {
         toast.error("PDF export failed", {
           description: err instanceof Error ? err.message : "Unknown error",
@@ -203,7 +206,7 @@ function Index() {
           </div>
           <div>
             <h1 className="text-xl font-semibold leading-tight text-foreground sm:text-2xl">
-              HiveMind <span className="text-[color:var(--neon-cyan)]">Causal Engine</span>
+              CausalOps <span className="text-[color:var(--neon-cyan)]">Causal Engine</span>
             </h1>
             <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
               Adversarial Threat · Causal Reasoning Loop
@@ -360,8 +363,8 @@ function Index() {
       )}
 
       <footer className="mt-16 text-center font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground/60">
-        HiveMind · Causal Execution Framework · <span className="text-foreground/60">E</span> mode ·{" "}
-        <span className="text-foreground/60">H</span> history ·{" "}
+        CausalOps · Causal Execution Framework · <span className="text-foreground/60">E</span> mode
+        · <span className="text-foreground/60">H</span> history ·{" "}
         <span className="text-foreground/60">P</span> presenter
       </footer>
     </main>

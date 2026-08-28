@@ -64,7 +64,7 @@ def test_spawn_dispatch_failure_publishes_dlq(
         raise RuntimeError("simulated worker failure")
 
     mock_consumer = AsyncMock()
-    monkeypatch.setenv("HIVEMIND_SPAWN_MAX_RETRIES", "1")
+    monkeypatch.setenv("CAUSALOPS_SPAWN_MAX_RETRIES", "1")
     monkeypatch.setattr(spawn_consumer, "dispatch_spawn_envelope", failing_dispatch)
     monkeypatch.setattr(spawn_consumer, "publish_dlq", capture_dlq)
 
@@ -80,7 +80,7 @@ def test_spawn_dispatch_failure_publishes_dlq(
 
 
 def test_dlq_topic_constant() -> None:
-    assert TOPIC_DLQ == "hivemind.dlq"
+    assert TOPIC_DLQ == "causalops.dlq"
 
 
 def test_spawn_batch_uses_configured_concurrency(monkeypatch) -> None:
@@ -112,7 +112,7 @@ def test_spawn_batch_uses_configured_concurrency(monkeypatch) -> None:
     ]
 
     mock_consumer = AsyncMock()
-    monkeypatch.setenv("HIVEMIND_SPAWN_CONCURRENCY", "2")
+    monkeypatch.setenv("CAUSALOPS_SPAWN_CONCURRENCY", "2")
     monkeypatch.setattr(spawn_consumer, "dispatch_spawn_envelope", fake_dispatch)
 
     async def run() -> None:
@@ -154,7 +154,7 @@ def test_spawn_consumer_reads_existing_unclaimed_work(monkeypatch) -> None:
     asyncio.run(run())
 
     assert created["topics"] == (TOPIC_SPAWN,)
-    assert created["kwargs"]["group_id"] == "hivemind-workers"
+    assert created["kwargs"]["group_id"] == "causalops-workers"
     assert created["kwargs"]["auto_offset_reset"] == "earliest"
     assert created["kwargs"]["enable_auto_commit"] is False
     assert created["started"] is True

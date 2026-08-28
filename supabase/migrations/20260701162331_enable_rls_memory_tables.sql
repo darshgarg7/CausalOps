@@ -1,0 +1,3 @@
+ALTER TABLE public.memory_runs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.memory_entities ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.memory_entity_edges ENABLE ROW LEVEL SECURITY;

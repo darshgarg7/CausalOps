@@ -19,7 +19,7 @@ def _barrier_timeout_s() -> float:
     try:
         return max(
             60.0,
-            float(os.getenv("HIVEMIND_BARRIER_TIMEOUT_S", DEFAULT_BARRIER_TIMEOUT_S)),
+            float(os.getenv("CAUSALOPS_BARRIER_TIMEOUT_S", DEFAULT_BARRIER_TIMEOUT_S)),
         )
     except ValueError:
         return DEFAULT_BARRIER_TIMEOUT_S

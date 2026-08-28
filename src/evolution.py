@@ -1,4 +1,4 @@
-"""Steady-state island evolution for HiveMind agent policy priors.
+"""Steady-state island evolution for CausalOps agent policy priors.
 
 The evolutionary pass keeps the LLM-authored agent objectives intact and evolves
 compact policy traits around them. Those traits are then injected into prompts as

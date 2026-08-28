@@ -34,7 +34,7 @@ echo "==> API health"
 curl -sf "${API_URL}/health" | grep -q '"status":"ok"'
 
 if ${COMPOSE} ps --status running 2>/dev/null | grep -q redpanda; then
-  echo "==> Redpanda topics (expect hivemind.* including hivemind.dlq)"
+  echo "==> Redpanda topics (expect causalops.* including causalops.dlq)"
   ${COMPOSE} exec -T redpanda rpk topic list
   if ${COMPOSE} ps --status running 2>/dev/null | grep -q worker; then
     echo "==> Worker container is running"

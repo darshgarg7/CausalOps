@@ -11,7 +11,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 def data_dir() -> Path:
     """Return the directory used for local run artifacts and SQLite state."""
 
-    configured = os.getenv("HIVEMIND_DATA_DIR")
+    configured = os.getenv("CAUSALOPS_DATA_DIR")
     if configured:
         return Path(configured).expanduser().resolve()
     return ROOT_DIR / "data"

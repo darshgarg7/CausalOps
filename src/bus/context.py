@@ -10,7 +10,7 @@ from bus.summary import RunBusSummary
 
 @dataclass
 class RunPublishContext:
-    """Tracks sequencing for one HiveMind run."""
+    """Tracks sequencing for one CausalOps run."""
 
     run_id: str
     correlation_id: str
@@ -24,7 +24,7 @@ class RunPublishContext:
 
 
 _run_context: ContextVar[RunPublishContext | None] = ContextVar(
-    "hivemind_run_context",
+    "causalops_run_context",
     default=None,
 )
 

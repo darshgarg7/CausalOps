@@ -52,7 +52,7 @@ async def start_producer() -> None:
     _shutdown.clear()
     _worker_thread = threading.Thread(
         target=_worker_main,
-        name="hivemind-kafka-producer",
+        name="causalops-kafka-producer",
         daemon=True,
     )
     _worker_thread.start()

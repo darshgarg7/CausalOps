@@ -19,3 +19,10 @@ uvicorn==0.46.0
 aiokafka==0.12.0
 polars==1.6.0
 pyarrow==17.0.0
+# supabase==2.15.2 / fastmcp==3.2.4 (as originally specced) cannot coexist:
+# fastmcp requires websockets>=15, supabase's realtime dep pins websockets<15
+# until supabase>=2.19. Pinned here to the resolved-compatible combo instead.
+supabase==2.31.0
+openai==2.44.0
+fastmcp==3.4.2
+httpx==0.28.1

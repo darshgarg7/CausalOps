@@ -44,18 +44,50 @@ grand_orchestrator_prompt = ChatPromptTemplate.from_messages(
     [
         (
             "system",
-            "You are the Grand Orchestrator for HiveMind SOC operations. "
+            "You are the Grand Orchestrator for CausalOps SOC operations. "
             "Analyze the incident and decompose it into 2-3 distinct "
             "investigatory vectors, such as geopolitical context, network "
             "forensics, identity risk, supply-chain exposure, or insider "
             "threat. Assign an AgentConfig for each vector.",
         ),
-        ("user", "INCIDENT:\n{task_description}"),
+        ("user", "{memory_context_text}INCIDENT:\n{task_description}"),
     ]
 )
 grand_orchestrator_chain = grand_orchestrator_prompt | llm.with_structured_output(
     ParentConfigsOutput
 )
+
+
+def _format_memory_context(memory_context: list[dict[str, Any]] | None) -> str:
+    """Render retrieved past runs into the orchestrator's user-message prefix.
+
+    Returns an empty string when there's no context, so the prompt template
+    doesn't need a conditional block.
+    """
+
+    if not memory_context:
+        return ""
+
+    lines = ["RELEVANT PAST INCIDENTS (ranked by recency-weighted similarity):"]
+    for index, run in enumerate(memory_context, start=1):
+        similarity = run.get("similarity")
+        weight = run.get("weighted_score")
+        ate = run.get("ate")
+        method = run.get("method")
+        n_rows = run.get("n_rows")
+        impact = (
+            f"ATE={ate}, method={method}, n_rows={n_rows}"
+            if ate is not None
+            else f"ATE=null (withheld: {method or 'insufficient_data'})"
+        )
+        lines.append(
+            f"{index}. [run_id: {run.get('run_id')}] "
+            f"similarity={similarity}, weight={weight}\n"
+            f'   "{run.get("task_description", "")}"\n'
+            f"   {impact}"
+        )
+    lines.append("---")
+    return "\n".join(lines) + "\n\n"
 
 
 def grand_orchestrator_node(state: GraphState) -> dict[str, list[AgentConfig]]:
@@ -72,7 +104,10 @@ def grand_orchestrator_node(state: GraphState) -> dict[str, list[AgentConfig]]:
 
     logger.info("Grand orchestrator analyzing incident")
     result = grand_orchestrator_chain.invoke(
-        {"task_description": state["task_description"]}
+        {
+            "task_description": state["task_description"],
+            "memory_context_text": _format_memory_context(state.get("memory_context")),
+        }
     )
     if result is None:
         raise RuntimeError("Grand orchestrator returned no structured parent configs")

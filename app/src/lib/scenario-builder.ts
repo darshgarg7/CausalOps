@@ -731,7 +731,7 @@ function tacticOrder(t: TacticId): number {
 
 export function toMitreJson(state: ScenarioState, ttpIds: string[]) {
   return {
-    schema: "hivemind.scenario/v1",
+    schema: "causalops.scenario/v1",
     asset: state.asset,
     actor: state.actor,
     objective: state.objective,
@@ -748,7 +748,7 @@ export function toMitreJson(state: ScenarioState, ttpIds: string[]) {
 
 export function toYaml(state: ScenarioState, ttpIds: string[]): string {
   const lines: string[] = [];
-  lines.push("schema: hivemind.scenario/v1");
+  lines.push("schema: causalops.scenario/v1");
   lines.push(`asset: ${JSON.stringify(state.asset)}`);
   lines.push(`actor: ${JSON.stringify(state.actor)}`);
   lines.push(`objective: ${JSON.stringify(state.objective)}`);

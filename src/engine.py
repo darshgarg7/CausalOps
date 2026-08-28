@@ -1,4 +1,4 @@
-"""Execution engine for HiveMind runs.
+"""Execution engine for CausalOps runs.
 
 This module is the backend boundary used by the HTTP API and the legacy
 Streamlit demo. It runs the Phase 2 coordinator workflow, composes a
@@ -44,13 +44,13 @@ def new_run_id() -> str:
     return f"run-{stamp}-{uuid.uuid4().hex[:8]}"
 
 
-async def run_hivemind(
+async def run_causalops(
     task_description: str,
     evidence_records: list[dict[str, Any]] | None = None,
     run_id: str | None = None,
     execution_mode: ExecutionMode = "standard",
 ) -> dict[str, Any]:
-    """Run the full HiveMind workflow and return a persisted artifact."""
+    """Run the full CausalOps workflow and return a persisted artifact."""
 
     resolved_run_id = run_id or new_run_id()
     correlation_id = resolved_run_id

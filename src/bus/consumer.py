@@ -32,7 +32,7 @@ async def stream_telemetry(
         logger.warning("SSE telemetry stream requested but KAFKA_BOOTSTRAP unset")
         return
 
-    group_id = f"hivemind-sse-{uuid.uuid4().hex[:12]}"
+    group_id = f"causalops-sse-{uuid.uuid4().hex[:12]}"
     consumer = AIOKafkaConsumer(
         TOPIC_TELEMETRY,
         bootstrap_servers=os.getenv("KAFKA_BOOTSTRAP", "").strip(),

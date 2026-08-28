@@ -23,7 +23,7 @@ def _child_idempotency_key(run_id: str, task_id: str) -> str:
 
 def _spawn_concurrency() -> int:
     try:
-        return max(1, int(os.getenv("HIVEMIND_SPAWN_CONCURRENCY", "3")))
+        return max(1, int(os.getenv("CAUSALOPS_SPAWN_CONCURRENCY", "3")))
     except ValueError:
         return 3
 

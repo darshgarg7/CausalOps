@@ -8,6 +8,8 @@ import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
 export default defineConfig({
   vite: {
+    // Read VITE_* vars from repo-root .env (shared with docker-compose api service).
+    envDir: "..",
     build: {
       rollupOptions: {
         output: {

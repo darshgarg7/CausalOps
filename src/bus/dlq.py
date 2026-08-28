@@ -23,7 +23,7 @@ def publish_dlq(
     artifact_type: str | None = None,
     original_key: bytes | None = None,
 ) -> None:
-    """Publish a failed message envelope to hivemind.dlq."""
+    """Publish a failed message envelope to causalops.dlq."""
 
     if not kafka_enabled():
         logger.warning(

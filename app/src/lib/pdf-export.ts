@@ -1,5 +1,5 @@
 import jsPDF from "jspdf";
-import type { HistoryEntry } from "./hivemind-types";
+import type { HistoryEntry } from "./causalops-types";
 
 function formatTimestamp(ts: number): string {
   const d = new Date(ts);
@@ -34,7 +34,7 @@ export async function exportRunReport(entry: HistoryEntry, graphCanvas: HTMLCanv
   doc.setTextColor(34, 211, 238);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(18);
-  doc.text("HIVEMIND", margin, 32);
+  doc.text("CAUSALOPS", margin, 32);
   doc.setTextColor(226, 232, 240);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
@@ -212,12 +212,12 @@ export async function exportRunReport(entry: HistoryEntry, graphCanvas: HTMLCanv
     doc.setFontSize(7);
     doc.setTextColor(148, 163, 184);
     doc.text(
-      `HiveMind Causal Engine · Run ${entry.runId} · Page ${i} / ${total}`,
+      `CausalOps Causal Engine · Run ${entry.runId} · Page ${i} / ${total}`,
       pageW / 2,
       pageH - 16,
       { align: "center" },
     );
   }
 
-  doc.save(`hivemind-${entry.runId}.pdf`);
+  doc.save(`causalops-${entry.runId}.pdf`);
 }

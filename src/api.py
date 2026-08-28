@@ -1,4 +1,4 @@
-"""HTTP interface for HiveMind's causal evidence compiler.
+"""HTTP interface for CausalOps's causal evidence compiler.
 
 The API exposes two paths:
 
@@ -29,7 +29,7 @@ from demo_fixtures import (
     patch_lateral_movement_evidence,
     patch_lateral_movement_graph,
 )
-from engine import load_run_artifact, new_run_id, run_hivemind
+from engine import load_run_artifact, new_run_id, run_causalops
 from estimators import estimate_causal_effect
 from evidence_adapters import (
     normalize_cve_records,
@@ -44,7 +44,7 @@ logging.getLogger("dowhy").setLevel(logging.WARNING)
 
 
 def _spawn_worker_enabled() -> bool:
-    return os.getenv("HIVEMIND_ENABLE_SPAWN_WORKER", "0").strip().lower() in (
+    return os.getenv("CAUSALOPS_ENABLE_SPAWN_WORKER", "0").strip().lower() in (
         "1",
         "true",
         "yes",
@@ -76,7 +76,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(
-    title="HiveMind API",
+    title="CausalOps API",
     version="0.2.0",
     description="Evidence-backed causal inference API for cyber decision support.",
     lifespan=lifespan,
@@ -86,7 +86,7 @@ app = FastAPI(
 def _allowed_origins() -> list[str]:
     """Return CORS origins from env, with a local-demo-safe default."""
 
-    configured = os.getenv("HIVEMIND_ALLOWED_ORIGINS", "")
+    configured = os.getenv("CAUSALOPS_ALLOWED_ORIGINS", "")
     if configured.strip():
         return [origin.strip() for origin in configured.split(",") if origin.strip()]
     return [
@@ -154,7 +154,7 @@ def read_root():
     """Return human-readable API orientation links."""
 
     return {
-        "message": "Welcome to the HiveMind API",
+        "message": "Welcome to the CausalOps API",
         "docs_url": "/docs",
         "health_check": "/health",
         "run_status": "/run/{run_id}",
@@ -218,10 +218,10 @@ async def _execute_run_background(
     evidence_records: list[dict[str, Any]] | None,
     execution_mode: str,
 ) -> None:
-    """Run HiveMind in the background for async POST /run."""
+    """Run CausalOps in the background for async POST /run."""
 
     try:
-        await run_hivemind(
+        await run_causalops(
             task_description,
             evidence_records=evidence_records,
             run_id=run_id,
@@ -404,7 +404,7 @@ async def enqueue_run(request: RunRequest):
             execution_mode=request.execution_mode,
         )
     )
-    logger.info("Enqueued HiveMind run_id=%s", run_id)
+    logger.info("Enqueued CausalOps run_id=%s", run_id)
     return JSONResponse(
         status_code=202,
         content={"run_id": run_id, "status": "queued"},
@@ -415,9 +415,9 @@ async def enqueue_run(request: RunRequest):
 async def run_engine_sync(request: RunRequest):
     """Blocking run endpoint retained for scripts and integration tests."""
 
-    logger.info("Received synchronous request to run HiveMind engine")
+    logger.info("Received synchronous request to run CausalOps engine")
     try:
-        result = await run_hivemind(
+        result = await run_causalops(
             request.task_description,
             evidence_records=request.evidence_records,
             run_id=request.run_id,
@@ -429,10 +429,10 @@ async def run_engine_sync(request: RunRequest):
         )
         return result
     except Exception as exc:
-        logger.exception("Error executing run_hivemind")
+        logger.exception("Error executing run_causalops")
         raise HTTPException(
             status_code=500,
-            detail="HiveMind execution failed. See API logs for details.",
+            detail="CausalOps execution failed. See API logs for details.",
         ) from exc
 
 

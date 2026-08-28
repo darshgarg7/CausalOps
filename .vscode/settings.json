@@ -1,0 +1,8 @@
+{
+  "remote.portsAttributes": {
+    "8001": {
+      "label": "CausalOps memory MCP server",
+      "onAutoForward": "silent"
+    }
+  }
+}

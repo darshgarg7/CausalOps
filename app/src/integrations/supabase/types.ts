@@ -8,13 +8,150 @@ export type Database = {
   };
   public: {
     Tables: {
-      [_ in never]: never;
+      memory_entities: {
+        Row: {
+          entity_type: string;
+          entity_value: string;
+          first_seen: string;
+          id: string;
+          last_seen: string;
+        };
+        Insert: {
+          entity_type: string;
+          entity_value: string;
+          first_seen?: string;
+          id?: string;
+          last_seen?: string;
+        };
+        Update: {
+          entity_type?: string;
+          entity_value?: string;
+          first_seen?: string;
+          id?: string;
+          last_seen?: string;
+        };
+        Relationships: [];
+      };
+      memory_entity_edges: {
+        Row: {
+          created_at: string;
+          id: string;
+          relationship: string;
+          source_entity_id: string;
+          source_run_id: string;
+          target_entity_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          relationship: string;
+          source_entity_id: string;
+          source_run_id: string;
+          target_entity_id: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          relationship?: string;
+          source_entity_id?: string;
+          source_run_id?: string;
+          target_entity_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "memory_entity_edges_source_entity_id_fkey";
+            columns: ["source_entity_id"];
+            isOneToOne: false;
+            referencedRelation: "memory_entities";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "memory_entity_edges_source_run_id_fkey";
+            columns: ["source_run_id"];
+            isOneToOne: false;
+            referencedRelation: "memory_runs";
+            referencedColumns: ["run_id"];
+          },
+          {
+            foreignKeyName: "memory_entity_edges_target_entity_id_fkey";
+            columns: ["target_entity_id"];
+            isOneToOne: false;
+            referencedRelation: "memory_entities";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      memory_runs: {
+        Row: {
+          agent_tier_metrics: Json;
+          causal_graph: Json;
+          created_at: string;
+          estimate_report: Json;
+          id: string;
+          memos: Json;
+          run_id: string;
+          task_description: string;
+          task_embedding: string;
+        };
+        Insert: {
+          agent_tier_metrics?: Json;
+          causal_graph?: Json;
+          created_at?: string;
+          estimate_report?: Json;
+          id?: string;
+          memos?: Json;
+          run_id: string;
+          task_description: string;
+          task_embedding: string;
+        };
+        Update: {
+          agent_tier_metrics?: Json;
+          causal_graph?: Json;
+          created_at?: string;
+          estimate_report?: Json;
+          id?: string;
+          memos?: Json;
+          run_id?: string;
+          task_description?: string;
+          task_embedding?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       [_ in never]: never;
     };
     Functions: {
-      [_ in never]: never;
+      get_entity_neighborhood: {
+        Args: { p_entity_type: string; p_entity_value: string };
+        Returns: {
+          created_at: string;
+          relationship: string;
+          run_id: string;
+          source_type: string;
+          source_value: string;
+          target_type: string;
+          target_value: string;
+        }[];
+      };
+      search_similar_runs: {
+        Args: {
+          decay_lambda?: number;
+          match_count?: number;
+          query_embedding: string;
+        };
+        Returns: {
+          causal_graph: Json;
+          created_at: string;
+          estimate_report: Json;
+          memos: Json;
+          run_id: string;
+          similarity: number;
+          task_description: string;
+          temporal_weight: number;
+          weighted_score: number;
+        }[];
+      };
     };
     Enums: {
       [_ in never]: never;

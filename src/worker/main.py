@@ -31,7 +31,7 @@ async def _run() -> None:
 
 
 def main() -> None:
-    logger.info("Starting HiveMind spawn worker")
+    logger.info("Starting CausalOps spawn worker")
     asyncio.run(_run())
 
 

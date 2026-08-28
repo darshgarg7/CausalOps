@@ -1,4 +1,4 @@
-"""Contract tests for HiveMind's public FastAPI surface."""
+"""Contract tests for CausalOps's public FastAPI surface."""
 
 from __future__ import annotations
 

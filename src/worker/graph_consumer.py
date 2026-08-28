@@ -84,7 +84,7 @@ async def run_graph_consumer(*, stop_event: asyncio.Event | None = None) -> None
     consumer = AIOKafkaConsumer(
         *_GRAPH_TOPICS,
         bootstrap_servers=os.getenv("KAFKA_BOOTSTRAP", "").strip(),
-        group_id="hivemind-graph-5d",
+        group_id="causalops-graph-5d",
         auto_offset_reset="earliest",
         enable_auto_commit=True,
     )

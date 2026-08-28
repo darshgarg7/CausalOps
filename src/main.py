@@ -1,4 +1,4 @@
-"""Legacy Streamlit entry point for the HiveMind backend.
+"""Legacy Streamlit entry point for the CausalOps backend.
 
 The Docker Compose demo uses the React frontend in `app/`, but this Streamlit
 surface remains useful for quick local inspection of graph artifacts and raw
@@ -13,21 +13,21 @@ import streamlit as st
 from dotenv import load_dotenv
 from streamlit_agraph import Config, Edge, Node, agraph
 
-from engine import run_hivemind
+from engine import run_causalops
 from paths import data_dir
 
 load_dotenv()
 
 
 def main() -> None:
-    """Render the Streamlit demo and execute HiveMind on demand."""
+    """Render the Streamlit demo and execute CausalOps on demand."""
 
     st.set_page_config(
-        page_title="HiveMind Causal Engine",
+        page_title="CausalOps Causal Engine",
         page_icon="H",
         layout="wide",
     )
-    st.title("HiveMind: Causal Digital Twin")
+    st.title("CausalOps: Causal Digital Twin")
     st.markdown(
         "Deploy hierarchical agents to build a measurable causal DAG, compile "
         "evidence records, and estimate interventions only when data gates pass.",
@@ -56,7 +56,7 @@ def _run_and_render(task_description: str) -> None:
     with st.status("Executing Hierarchical Agentic Loop...", expanded=True) as status:
         st.write("Executing causal graph workflow...")
         try:
-            artifact = asyncio.run(run_hivemind(task_description))
+            artifact = asyncio.run(run_causalops(task_description))
             status.update(
                 label="Analysis and causal inference complete",
                 state="complete",
