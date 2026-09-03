@@ -15,12 +15,28 @@ export const CausalNodeSchema = z.object({
   description: z.string().optional(),
 });
 
+// causal_discovery.py: EdgeVerdict.status — the six verdicts apply_discovery
+// can write onto a graph edge. Present only after discovery runs (see
+// graphDiscoveryAvailable() in causal-validation.ts for the absent case).
+export const EdgeValidationStatusSchema = z.enum([
+  "confirmed",
+  "compatible",
+  "reversed",
+  "refuted",
+  "discovered",
+  "hypothesized",
+]);
+
 export const CausalEdgeSchema = z.object({
   source: z.string().min(1),
   target: z.string().min(1),
   relationship: z.string(),
   required_evidence: z.array(z.string()).optional(),
   falsification_tests: z.array(z.string()).optional(),
+  status: EdgeValidationStatusSchema.optional(),
+  p_value: z.number().finite().nullable().optional(),
+  strength: z.number().finite().nullable().optional(),
+  validation_detail: z.string().optional(),
 });
 
 export const CausalGraphSchema = z.object({
@@ -42,6 +58,54 @@ export const ImpactSchema = z.object({
   demo_fixture: z.boolean().optional(),
 });
 
+// schema.py: RefuterReport — one DoWhy refutation check (estimators.py's
+// _run_refuters). `passed` is a real boolean; there is no numeric score.
+export const RefuterReportSchema = z.object({
+  name: z.string(),
+  passed: z.boolean(),
+  details: z.string(),
+});
+
+const DataModeSchema = z.enum(["empirical", "insufficient_data", "synthetic_simulation"]);
+
+// schema.py: CausalDatasetProfile — quality profile of the compiled
+// dataframe (dataset_compiler.py's compile_evidence_dataset).
+export const CausalDatasetProfileSchema = z.object({
+  data_mode: DataModeSchema.optional(),
+  n_rows: z.number().int().nonnegative().optional(),
+  columns: z.array(z.string()).optional(),
+  treatment: z.string().optional(),
+  outcome: z.string().optional(),
+  adjustment_set: z.array(z.string()).optional(),
+  treated_count: z.number().int().nonnegative().optional(),
+  control_count: z.number().int().nonnegative().optional(),
+  missingness: z.record(z.string(), z.number()).optional(),
+  warnings: z.array(z.string()).optional(),
+});
+
+// schema.py: CausalEstimateReport — the full statistical report returned by
+// estimators.py's estimate_causal_effect. All fields are optional here (not
+// just where schema.py marks them optional) so older stored run artifacts
+// and partial fixtures keep parsing instead of failing closed on drift that
+// only affects fields this UI doesn't render yet.
+export const CausalEstimateReportSchema = z.object({
+  data_mode: DataModeSchema.optional(),
+  method: z.string().optional(),
+  treatment: z.string().optional(),
+  outcome: z.string().optional(),
+  adjustment_set: z.array(z.string()).optional(),
+  n_rows: z.number().int().nonnegative().optional(),
+  ate: z.number().finite().nullable().optional(),
+  standard_error: z.number().finite().nullable().optional(),
+  p_value: z.number().finite().nullable().optional(),
+  ci_low: z.number().finite().nullable().optional(),
+  ci_high: z.number().finite().nullable().optional(),
+  refutation_passed: z.boolean().optional(),
+  refuters: z.array(RefuterReportSchema).optional(),
+  warnings: z.array(z.string()).optional(),
+  dataset_profile: CausalDatasetProfileSchema.nullable().optional(),
+});
+
 export const RunResponseSchema = z.object({
   run_id: z.string().min(1),
   execution_mode: z.enum(["standard", "deep"]).optional(),
@@ -51,8 +115,8 @@ export const RunResponseSchema = z.object({
   evaluator_error: z.string().nullable().optional(),
   causal_graph: CausalGraphSchema,
   impact: ImpactSchema,
-  causal_estimate_report: z.unknown().optional(),
-  causal_dataset_profile: z.unknown().optional(),
+  causal_estimate_report: CausalEstimateReportSchema.optional(),
+  causal_dataset_profile: CausalDatasetProfileSchema.optional(),
   agent_tier_metrics: z.unknown().optional(),
   agent_evolution_report: z.unknown().optional(),
   policy_optimization_report: z.unknown().optional(),

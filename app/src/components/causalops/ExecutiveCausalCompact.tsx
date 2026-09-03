@@ -1,14 +1,13 @@
 import { useMemo, useState } from "react";
-import { Activity, Crown, GitBranch, Network, Workflow } from "lucide-react";
+import { Activity, Crown, GitBranch, Network, Sparkles, Workflow } from "lucide-react";
+import { domainLabel, type AgentNode, type ObservabilityTrace } from "@/lib/agent-runtime";
+import type { CausalEdge, CausalGraph } from "@/lib/causalops-types";
 import {
-  domainLabel,
-  evidenceColor,
-  evidenceLabel,
-  type AgentNode,
-  type EdgeAnnotation,
-  type ObservabilityTrace,
-} from "@/lib/agent-runtime";
-import type { CausalGraph } from "@/lib/causalops-types";
+  edgeStrokeWidth,
+  edgeVisualStyle,
+  graphDiscoveryAvailable,
+  type EdgeValidationStatus,
+} from "@/lib/causal-validation";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -18,12 +17,15 @@ interface Props {
 
 /**
  * Executive-friendly compact visualization:
- *   - Interactive layered DAG (SVG) on the left
- *   - Dynamic agent hierarchy (Orchestrator → Domains → Atomic) on the right
+ *   - Interactive layered DAG (SVG) on the left, styled from the backend's
+ *     real causal discovery status (confirmed/refuted/reversed/discovered/
+ *     hypothesized) — never from a synthetic confidence score.
+ *   - An explicitly-labeled illustrative agent hierarchy (Orchestrator →
+ *     Domains → Atomic) on the right, reconstructed client-side; it never
+ *     represents causal validation.
  *
- * Cross-highlighting: hovering a graph node lights up the owning agent (and
- * vice versa). Edges are colored by evidence type (telemetry / intel / etc.)
- * and weighted by causal confidence.
+ * Cross-highlighting: hovering a graph node lights up the owning illustrative
+ * agent (and vice versa).
  */
 export function ExecutiveCausalCompact({ graph, trace }: Props) {
   const [hoverNode, setHoverNode] = useState<string | null>(null);
@@ -77,7 +79,6 @@ export function ExecutiveCausalCompact({ graph, trace }: Props) {
       <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
         <CompactDAG
           graph={graph}
-          edges={trace?.edges ?? []}
           activeNode={activeNode}
           highlightedNodes={highlightedNodes}
           onHoverNode={setHoverNode}
@@ -91,7 +92,7 @@ export function ExecutiveCausalCompact({ graph, trace }: Props) {
         />
       </div>
 
-      <Legend />
+      <Legend discoveryAvailable={graphDiscoveryAvailable(graph)} />
 
       {trace && activeNode && <NodeInsight nodeId={activeNode} graph={graph} trace={trace} />}
     </section>
@@ -100,28 +101,14 @@ export function ExecutiveCausalCompact({ graph, trace }: Props) {
 
 interface DagProps {
   graph: CausalGraph;
-  edges: EdgeAnnotation[];
   activeNode: string | null;
   highlightedNodes: Set<string>;
   onHoverNode: (id: string | null) => void;
   onClickNode: (id: string) => void;
 }
 
-function CompactDAG({
-  graph,
-  edges,
-  activeNode,
-  highlightedNodes,
-  onHoverNode,
-  onClickNode,
-}: DagProps) {
+function CompactDAG({ graph, activeNode, highlightedNodes, onHoverNode, onClickNode }: DagProps) {
   const layout = useMemo(() => layoutLayered(graph), [graph]);
-
-  const annByKey = useMemo(() => {
-    const m = new Map<string, EdgeAnnotation>();
-    for (const e of edges) m.set(e.key, e);
-    return m;
-  }, [edges]);
 
   if (graph.nodes.length === 0) {
     return (
@@ -160,21 +147,18 @@ function CompactDAG({
             const s = nodes[e.source];
             const t = nodes[e.target];
             if (!s || !t) return null;
-            const key = `${e.source}->${e.target}`;
-            const ann = annByKey.get(key);
-            const colorVar = ann ? cssVarName(evidenceColor(ann.evidenceType)) : "--neon-slate";
-            const color = ann ? `var(${colorVar})` : "rgba(148,163,184,0.55)";
-            const conf = ann?.confidence ?? 0.55;
-            const stroke = 0.8 + conf * 2.2;
+            const style = edgeVisualStyle(e);
+            const stroke = edgeStrokeWidth(e);
             const dim = activeNode != null && activeNode !== e.source && activeNode !== e.target;
             const path = curvedPath(s.x, s.y, t.x, t.y);
             return (
-              <g key={idx} style={{ color }} opacity={dim ? 0.18 : 0.95}>
+              <g key={idx} style={{ color: style.color }} opacity={dim ? 0.18 : 0.95}>
                 <path
                   d={path}
                   fill="none"
-                  stroke={color}
+                  stroke={style.color}
                   strokeWidth={stroke}
+                  strokeDasharray={style.dash ? style.dash.join(" ") : undefined}
                   strokeLinecap="round"
                   markerEnd="url(#exec-arrow)"
                   className="transition-opacity"
@@ -265,11 +249,27 @@ interface HierarchyProps {
   onHoverAgent: (id: string | null) => void;
 }
 
+/** Badge shown wherever this panel renders the client-side illustrative agent trace. */
+function IllustrativeBadge() {
+  return (
+    <span
+      className="mb-2 inline-flex items-center gap-1 rounded-full border border-[color:var(--neon-violet)]/40 bg-[color:var(--neon-violet)]/10 px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.2em] text-[color:var(--neon-violet)]"
+      title="Client-side reconstruction of agent activation — not a live agent stream, and not a causal validation result."
+    >
+      <Sparkles className="h-2.5 w-2.5" aria-hidden />
+      Illustrative
+    </span>
+  );
+}
+
 function AgentHierarchy({ trace, highlightedAgent, onHoverAgent }: HierarchyProps) {
   if (!trace) {
     return (
-      <div className="flex min-h-[260px] items-center justify-center rounded-xl border border-white/5 bg-black/20 text-xs text-muted-foreground">
-        Agent trace appears after execution.
+      <div>
+        <IllustrativeBadge />
+        <div className="flex min-h-[260px] items-center justify-center rounded-xl border border-white/5 bg-black/20 text-xs text-muted-foreground">
+          Agent trace appears after execution.
+        </div>
       </div>
     );
   }
@@ -278,34 +278,37 @@ function AgentHierarchy({ trace, highlightedAgent, onHoverAgent }: HierarchyProp
   const domains = trace.agents.filter((a) => a.level === "domain" && a.status === "active");
 
   return (
-    <div className="relative max-h-[300px] overflow-auto rounded-xl border border-white/5 bg-black/20 p-3">
-      {orchestrator && (
-        <AgentRow
-          agent={orchestrator}
-          icon={<Crown className="h-3 w-3" />}
-          highlighted={highlightedAgent === orchestrator.id}
-          onHover={onHoverAgent}
-          accent="var(--neon-cyan)"
-        />
-      )}
-      <div className="ml-3 mt-2 space-y-2 border-l border-dashed border-white/10 pl-3">
-        {domains.length === 0 && (
-          <div className="text-[11px] text-muted-foreground">
-            No domain agents activated for this scenario.
-          </div>
+    <div>
+      <IllustrativeBadge />
+      <div className="relative max-h-[300px] overflow-auto rounded-xl border border-white/5 bg-black/20 p-3">
+        {orchestrator && (
+          <AgentRow
+            agent={orchestrator}
+            icon={<Crown className="h-3 w-3" />}
+            highlighted={highlightedAgent === orchestrator.id}
+            onHover={onHoverAgent}
+            accent="var(--neon-cyan)"
+          />
         )}
-        {domains.map((d) => {
-          const children = trace.agents.filter((a) => a.parentId === d.id);
-          return (
-            <DomainBlock
-              key={d.id}
-              agent={d}
-              childAgents={children}
-              highlightedAgent={highlightedAgent}
-              onHover={onHoverAgent}
-            />
-          );
-        })}
+        <div className="ml-3 mt-2 space-y-2 border-l border-dashed border-white/10 pl-3">
+          {domains.length === 0 && (
+            <div className="text-[11px] text-muted-foreground">
+              No domain agents activated for this scenario.
+            </div>
+          )}
+          {domains.map((d) => {
+            const children = trace.agents.filter((a) => a.parentId === d.id);
+            return (
+              <DomainBlock
+                key={d.id}
+                agent={d}
+                childAgents={children}
+                highlightedAgent={highlightedAgent}
+                onHover={onHoverAgent}
+              />
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -439,8 +442,9 @@ function NodeInsight({
   trace: ObservabilityTrace;
 }) {
   const node = graph.nodes.find((n) => n.id === nodeId);
-  const inEdges = trace.edges.filter((e) => e.target === nodeId);
-  const outEdges = trace.edges.filter((e) => e.source === nodeId);
+  // Real edges from the backend graph — never the illustrative trace.
+  const inEdges = graph.edges.filter((e) => e.target === nodeId);
+  const outEdges = graph.edges.filter((e) => e.source === nodeId);
   const owner = trace.agents.find((a) => a.contributedNodeIds.includes(nodeId));
   if (!node) return null;
 
@@ -452,8 +456,11 @@ function NodeInsight({
         </span>
         <span className="font-medium text-foreground">{node.label}</span>
         {owner && (
-          <span className="ml-auto rounded-full border border-white/10 bg-white/5 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
-            owned by {owner.label}
+          <span
+            className="ml-auto rounded-full border border-white/10 bg-white/5 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-muted-foreground"
+            title="Illustrative agent attribution — not a causal validation claim."
+          >
+            illustrative owner: {owner.label}
           </span>
         )}
       </div>
@@ -471,7 +478,7 @@ function EdgeList({
   side,
 }: {
   title: string;
-  items: EdgeAnnotation[];
+  items: CausalEdge[];
   side: "source" | "target";
 }) {
   return (
@@ -483,53 +490,62 @@ function EdgeList({
         <div className="text-[11px] text-muted-foreground/70">— none —</div>
       ) : (
         <ul className="space-y-1">
-          {items.slice(0, 5).map((e) => (
-            <li
-              key={e.key}
-              className="flex items-center gap-2 rounded border border-white/5 bg-black/20 px-2 py-1"
-            >
-              <span
-                className="h-2 w-2 shrink-0 rounded-full"
-                style={{
-                  background: `var(${cssVarName(evidenceColor(e.evidenceType))})`,
-                }}
-                title={evidenceLabel(e.evidenceType)}
-              />
-              <span className="truncate text-[11px] text-foreground/90">{e.relationship}</span>
-              <span className="ml-auto font-mono text-[10px] tabular-nums text-muted-foreground">
-                {(e.confidence * 100).toFixed(0)}%
-              </span>
-              <span className="font-mono text-[9px] uppercase text-muted-foreground/70">
-                {side === "source" ? `← ${truncate(e.source, 14)}` : `→ ${truncate(e.target, 14)}`}
-              </span>
-            </li>
-          ))}
+          {items.slice(0, 5).map((e, i) => {
+            const style = edgeVisualStyle(e);
+            return (
+              <li
+                key={`${e.source}-${e.target}-${i}`}
+                className="flex items-center gap-2 rounded border border-white/5 bg-black/20 px-2 py-1"
+              >
+                <span
+                  className="h-2 w-2 shrink-0 rounded-full"
+                  style={{ background: style.color }}
+                  title={e.validation_detail || style.label}
+                />
+                <span className="truncate text-[11px] text-foreground/90">{e.relationship}</span>
+                <span className="ml-auto font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                  {style.shortLabel}
+                  {typeof e.p_value === "number" ? ` · p=${e.p_value.toFixed(3)}` : ""}
+                </span>
+                <span className="font-mono text-[9px] uppercase text-muted-foreground/70">
+                  {side === "source"
+                    ? `← ${truncate(e.source, 14)}`
+                    : `→ ${truncate(e.target, 14)}`}
+                </span>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
   );
 }
 
-function Legend() {
-  const items: { label: string; color: string }[] = [
-    { label: "Telemetry", color: "var(--neon-emerald)" },
-    { label: "External Intel", color: "var(--neon-cyan)" },
-    { label: "Heuristic", color: "var(--neon-amber)" },
-    { label: "Model-Inferred", color: "var(--neon-violet)" },
-  ];
+const LEGEND_STATUSES: EdgeValidationStatus[] = [
+  "confirmed",
+  "compatible",
+  "discovered",
+  "reversed",
+  "refuted",
+  "hypothesized",
+];
+
+function Legend({ discoveryAvailable }: { discoveryAvailable: boolean }) {
   return (
     <div className="mt-3 flex flex-wrap items-center gap-3 font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
-      <span>Edge evidence:</span>
-      {items.map((i) => (
-        <span key={i.label} className="flex items-center gap-1.5">
-          <span
-            className="h-1 w-5 rounded"
-            style={{ background: i.color, boxShadow: `0 0 6px ${i.color}` }}
-          />
-          {i.label}
-        </span>
-      ))}
-      <span className="ml-auto">Edge thickness ≈ causal confidence</span>
+      <span>{discoveryAvailable ? "Edge status:" : "Edge status (discovery unavailable):"}</span>
+      {LEGEND_STATUSES.map((status) => {
+        const style = edgeVisualStyle({ status });
+        return (
+          <span key={status} className="flex items-center gap-1.5">
+            <span
+              className="h-1 w-5 rounded"
+              style={{ background: style.color, boxShadow: `0 0 6px ${style.color}` }}
+            />
+            {style.shortLabel}
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -610,9 +626,4 @@ function curvedPath(x1: number, y1: number, x2: number, y2: number): string {
 
 function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n - 1) + "…" : s;
-}
-
-function cssVarName(varExpr: string): string {
-  const m = varExpr.match(/--[\w-]+/);
-  return m ? m[0] : "--neon-cyan";
 }
