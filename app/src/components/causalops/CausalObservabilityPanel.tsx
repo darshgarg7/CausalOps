@@ -18,7 +18,6 @@ import {
   RotateCcw,
   ShieldCheck,
   Sparkles,
-  Target,
   Workflow,
   X,
   XCircle,
@@ -26,22 +25,26 @@ import {
 } from "lucide-react";
 import {
   domainLabel,
-  evidenceColor,
-  evidenceLabel,
   type AgentNode,
   type DecisionLogEntry,
   type EdgeAnnotation,
   type ObservabilityTrace,
 } from "@/lib/agent-runtime";
+import type { CausalEstimateReport, CausalGraph } from "@/lib/causalops-types";
+import { edgeVisualStyle, summarizeEstimate } from "@/lib/causal-validation";
 import { cn } from "@/lib/utils";
 
 interface Props {
   trace: ObservabilityTrace;
+  /** Real causal graph — used only to look up real edge validation status. */
+  graph: CausalGraph;
+  /** Real backend estimate report — the "Estimate" tab renders only this, never synthetic data. */
+  estimateReport?: CausalEstimateReport | null;
 }
 
-type View = "hierarchy" | "decisions" | "validation" | "rejected";
+type View = "hierarchy" | "decisions" | "estimate" | "rejected";
 
-export function CausalObservabilityPanel({ trace }: Props) {
+export function CausalObservabilityPanel({ trace, graph, estimateReport }: Props) {
   const [view, setView] = useState<View>("hierarchy");
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(
     trace.agents.find((a) => a.level === "orchestrator")?.id ?? null,
@@ -85,6 +88,8 @@ export function CausalObservabilityPanel({ trace }: Props) {
     return { active, rejected };
   }, [trace]);
 
+  const estimateSummary = useMemo(() => summarizeEstimate(estimateReport), [estimateReport]);
+
   return (
     <section className="glass overflow-hidden rounded-2xl">
       {/* Header */}
@@ -107,7 +112,7 @@ export function CausalObservabilityPanel({ trace }: Props) {
           </div>
           <span
             className="ml-3 rounded-full border border-[color:var(--neon-violet)]/40 bg-[color:var(--neon-violet)]/10 px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.2em] text-[color:var(--neon-violet)]"
-            title="Client-side overlay derived from the /run JSON response — not the live Execution Stream (Kafka telemetry)"
+            title="Hierarchy, Decision Log, and Rejected are a client-side reconstruction of agent activation derived from the /run JSON response — not a live agent stream, and not a causal validation result. The Estimate tab renders the backend's real causal_estimate_report."
           >
             Derived overlay
           </span>
@@ -130,11 +135,11 @@ export function CausalObservabilityPanel({ trace }: Props) {
             badge={trace.log.length}
           />
           <TabBtn
-            active={view === "validation"}
-            onClick={() => setView("validation")}
+            active={view === "estimate"}
+            onClick={() => setView("estimate")}
             icon={<ShieldCheck className="h-3 w-3" />}
-            label="DoWhy"
-            badge={`${trace.validation.placeboPassed}/${trace.validation.placeboTotal}`}
+            label="Estimate"
+            badge={estimateSummary.refuterTally ?? estimateSummary.label}
           />
           <TabBtn
             active={view === "rejected"}
@@ -162,6 +167,7 @@ export function CausalObservabilityPanel({ trace }: Props) {
           <aside className="bg-[oklch(0.16_0.03_260/0.6)]">
             <AgentInspector
               agent={selected}
+              graph={graph}
               edges={trace.edges.filter((e) =>
                 selected ? e.attributedAgentId === selected.id : false,
               )}
@@ -175,7 +181,7 @@ export function CausalObservabilityPanel({ trace }: Props) {
         <DecisionLogView log={trace.log} agentById={agentById} totalMs={trace.totalDurationMs} />
       )}
 
-      {view === "validation" && <ValidationView trace={trace} />}
+      {view === "estimate" && <EstimateView report={estimateReport} />}
 
       {view === "rejected" && <RejectedView trace={trace} />}
     </section>
@@ -387,10 +393,12 @@ function TreeNode({
 
 function AgentInspector({
   agent,
+  graph,
   edges,
   onClose,
 }: {
   agent: AgentNode | null;
+  graph: CausalGraph;
   edges: EdgeAnnotation[];
   onClose: () => void;
 }) {
@@ -501,7 +509,7 @@ function AgentInspector({
           <Field label={`Attributed edges (${edges.length})`}>
             <ul className="space-y-1.5">
               {edges.map((e) => (
-                <EdgeRow key={e.key} edge={e} />
+                <EdgeRow key={e.key} edge={e} graph={graph} />
               ))}
             </ul>
           </Field>
@@ -573,7 +581,14 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function EdgeRow({ edge }: { edge: EdgeAnnotation }) {
+/**
+ * `edge` is only the illustrative agent-attribution record (source/target/
+ * relationship/attributedAgentId); real validation status is looked up from
+ * the backend `graph` by source->target key, never fabricated here.
+ */
+function EdgeRow({ edge, graph }: { edge: EdgeAnnotation; graph: CausalGraph }) {
+  const realEdge = graph.edges.find((e) => e.source === edge.source && e.target === edge.target);
+  const style = edgeVisualStyle(realEdge ?? {});
   return (
     <li className="flex flex-wrap items-center gap-1.5 rounded-md border border-white/5 bg-white/[0.02] px-2 py-1.5 text-[11px]">
       <span className="font-mono text-[color:var(--neon-cyan)]">{edge.source}</span>
@@ -584,12 +599,11 @@ function EdgeRow({ edge }: { edge: EdgeAnnotation }) {
       </span>
       <span
         className="ml-auto rounded-full px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider"
-        style={{
-          color: `oklch(${evidenceColor(edge.evidenceType)})`,
-          background: `oklch(${evidenceColor(edge.evidenceType)} / 0.12)`,
-        }}
+        style={{ color: style.color, background: "rgba(255,255,255,0.04)" }}
+        title={realEdge?.validation_detail || style.label}
       >
-        {evidenceLabel(edge.evidenceType)} · {Math.round(edge.confidence * 100)}%
+        {style.shortLabel}
+        {typeof realEdge?.p_value === "number" ? ` · p=${realEdge.p_value.toFixed(3)}` : ""}
       </span>
     </li>
   );
@@ -690,7 +704,6 @@ function DecisionLogView({
           <option value="hypothesis">hypothesis</option>
           <option value="evidence">evidence</option>
           <option value="merge">merge</option>
-          <option value="validate">validate</option>
           <option value="prune">prune</option>
         </select>
       </div>
@@ -745,8 +758,6 @@ function kindColor(k: DecisionLogEntry["kind"]): string {
       return "oklch(var(--neon-cyan))";
     case "merge":
       return "oklch(var(--neon-violet))";
-    case "validate":
-      return "oklch(var(--neon-emerald))";
     case "prune":
       return "oklch(var(--neon-amber))";
   }
@@ -766,174 +777,146 @@ function KindIcon({ kind }: { kind: DecisionLogEntry["kind"] }) {
       return <Database className={cls} style={style} />;
     case "merge":
       return <GitBranch className={cls} style={style} />;
-    case "validate":
-      return <ShieldCheck className={cls} style={style} />;
     case "prune":
       return <AlertTriangle className={cls} style={style} />;
   }
 }
 
 // ---------------------------------------------------------------------------
-// Validation view (DoWhy-style)
+// Estimate view — renders the backend's real CausalEstimateReport only.
+// No synthetic value is computed or displayed here.
 // ---------------------------------------------------------------------------
 
-function ValidationView({ trace }: { trace: ObservabilityTrace }) {
-  const v = trace.validation;
-  const validatedPct = v.totalEdges ? (v.validatedEdges / v.totalEdges) * 100 : 0;
-  const placeboPct = v.placeboTotal ? (v.placeboPassed / v.placeboTotal) * 100 : 0;
-
-  // Group edges by evidence type
-  const groups = useMemo(() => {
-    const m = new Map<EdgeAnnotation["evidenceType"], EdgeAnnotation[]>();
-    for (const e of trace.edges) {
-      const arr = m.get(e.evidenceType) ?? [];
-      arr.push(e);
-      m.set(e.evidenceType, arr);
-    }
-    return m;
-  }, [trace]);
+function EstimateView({ report }: { report: CausalEstimateReport | null | undefined }) {
+  const summary = summarizeEstimate(report);
+  const refuters = report?.refuters ?? [];
 
   return (
     <div className="grid gap-px bg-white/5 lg:grid-cols-2">
-      {/* Stats */}
       <div className="space-y-4 bg-[oklch(0.16_0.03_260/0.6)] p-5">
         <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
           <Beaker className="h-3 w-3 text-[color:var(--neon-emerald)]" />
-          DoWhy-style refutation pass
+          Causal estimate report
         </div>
 
-        <Stat
-          label="Refutation score"
-          value={`${Math.round(v.refutationScore * 100)}%`}
-          sub="Composite: placebo + random-confounder + subset-sampling"
-          tone="emerald"
-          pct={v.refutationScore * 100}
-        />
-        <Stat
-          label="Placebo tests passed"
-          value={`${v.placeboPassed} / ${v.placeboTotal}`}
-          sub="Edges that survive null-effect injection"
-          tone="cyan"
-          pct={placeboPct}
-        />
-        <Stat
-          label="Statistically validated edges"
-          value={`${v.validatedEdges} / ${v.totalEdges}`}
-          sub="Backed by telemetry or external CTI"
-          tone="violet"
-          pct={validatedPct}
-        />
-        <Stat
-          label="Avg confidence (validated)"
-          value={`${Math.round(v.avgValidatedConfidence * 100)}%`}
-          sub={`vs. ${Math.round(v.avgConfidence * 100)}% across all edges`}
-          tone="amber"
-          pct={v.avgValidatedConfidence * 100}
-        />
+        <div
+          className={cn(
+            "rounded-lg border p-3",
+            summary.state === "estimated_refuted_pass"
+              ? "border-emerald-400/30 bg-emerald-400/5"
+              : summary.state === "estimated_refuted_fail"
+                ? "border-rose-400/30 bg-rose-400/5"
+                : "border-white/10 bg-white/[0.02]",
+          )}
+        >
+          <p className="font-mono text-xs font-semibold uppercase tracking-wider text-foreground/90">
+            {summary.label}
+          </p>
+          <p className="mt-1 text-[11px] text-muted-foreground">{summary.detail}</p>
+        </div>
+
+        {report && (
+          <dl className="grid grid-cols-2 gap-3 font-mono text-[11px]">
+            <StatField label="ATE" value={formatNumber(report.ate)} />
+            <StatField label="Standard error" value={formatNumber(report.standard_error)} />
+            <StatField label="p-value" value={formatNumber(report.p_value, 4)} />
+            <StatField
+              label="95% CI"
+              value={
+                report.ci_low != null && report.ci_high != null
+                  ? `[${report.ci_low.toFixed(3)}, ${report.ci_high.toFixed(3)}]`
+                  : "—"
+              }
+            />
+            <StatField label="Rows" value={report.n_rows != null ? String(report.n_rows) : "—"} />
+            <StatField label="Method" value={report.method || "—"} />
+          </dl>
+        )}
       </div>
 
-      {/* Edge breakdown by evidence type */}
-      <div className="space-y-4 bg-[oklch(0.16_0.03_260/0.6)] p-5">
+      {/* Real refuter results — booleans only, no invented score. */}
+      <div className="space-y-3 bg-[oklch(0.16_0.03_260/0.6)] p-5">
         <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
-          <Target className="h-3 w-3 text-[color:var(--neon-violet)]" />
-          Inferred vs. validated relationships
+          <ShieldCheck className="h-3 w-3 text-[color:var(--neon-violet)]" />
+          Refutation tests {refuters.length > 0 && `(${summary.refuterTally})`}
         </div>
-        {(["telemetry", "external_intel", "model_inferred", "heuristic"] as const).map((type) => {
-          const items = groups.get(type) ?? [];
-          const isValidated = type === "telemetry" || type === "external_intel";
-          return (
-            <div key={type} className="space-y-1.5">
-              <div className="flex items-center justify-between text-xs">
-                <span className="flex items-center gap-1.5">
-                  <span
-                    className="h-2 w-2 rounded-full"
-                    style={{ background: `oklch(${evidenceColor(type)})` }}
-                  />
-                  <span className="font-mono uppercase tracking-wider text-foreground/85">
-                    {evidenceLabel(type)}
+        {refuters.length === 0 ? (
+          <p className="text-[11px] text-muted-foreground">
+            No refutation tests were recorded for this estimate.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {refuters.map((r) => (
+              <li
+                key={r.name}
+                className={cn(
+                  "rounded-lg border p-2.5",
+                  r.passed
+                    ? "border-emerald-400/30 bg-emerald-400/5"
+                    : "border-rose-400/30 bg-rose-400/5",
+                )}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-[11px] uppercase tracking-wider text-foreground/90">
+                    {r.name.replaceAll("_", " ")}
                   </span>
                   <span
                     className={cn(
-                      "rounded-full border px-1.5 py-0 font-mono text-[9px] uppercase tracking-wider",
-                      isValidated
-                        ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300"
-                        : "border-amber-400/40 bg-amber-400/10 text-amber-300",
+                      "flex items-center gap-1 rounded-full border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider",
+                      r.passed
+                        ? "border-emerald-400/40 text-emerald-300"
+                        : "border-rose-400/40 text-rose-300",
                     )}
                   >
-                    {isValidated ? "validated" : "inferred"}
+                    {r.passed ? (
+                      <CheckCircle2 className="h-2.5 w-2.5" />
+                    ) : (
+                      <XCircle className="h-2.5 w-2.5" />
+                    )}
+                    {r.passed ? "passed" : "failed"}
                   </span>
-                </span>
-                <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
-                  {items.length} edge{items.length === 1 ? "" : "s"}
-                </span>
-              </div>
-              <div className="h-1.5 overflow-hidden rounded-full bg-white/5">
-                <div
-                  className="h-full"
-                  style={{
-                    width: trace.edges.length
-                      ? `${(items.length / trace.edges.length) * 100}%`
-                      : "0%",
-                    background: `oklch(${evidenceColor(type)})`,
-                  }}
-                />
-              </div>
-            </div>
-          );
-        })}
+                </div>
+                {r.details && (
+                  <p className="mt-1 whitespace-pre-line text-[10px] leading-relaxed text-muted-foreground">
+                    {r.details}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
 
-        <p className="border-t border-white/5 pt-3 font-mono text-[10px] leading-relaxed text-muted-foreground">
-          The system distinguishes <span className="text-emerald-300">statistically validated</span>{" "}
-          relationships (telemetry / CTI) from{" "}
-          <span className="text-amber-300">model-inferred</span> ones. Refutation tests randomly
-          inject placebo treatments and confirm that <em>only</em> real causal edges retain effect.
-        </p>
+        {report?.warnings && report.warnings.length > 0 && (
+          <div className="border-t border-white/5 pt-3">
+            <p className="mb-1.5 font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
+              Warnings
+            </p>
+            <ul className="space-y-1">
+              {report.warnings.map((w, i) => (
+                <li key={i} className="text-[10px] leading-relaxed text-amber-200/80">
+                  {w}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-function Stat({
-  label,
-  value,
-  sub,
-  tone,
-  pct,
-}: {
-  label: string;
-  value: string;
-  sub: string;
-  tone: "cyan" | "violet" | "emerald" | "amber";
-  pct: number;
-}) {
-  const colorVar = {
-    cyan: "var(--neon-cyan)",
-    violet: "var(--neon-violet)",
-    emerald: "var(--neon-emerald)",
-    amber: "var(--neon-amber)",
-  }[tone];
+function StatField({ label, value }: { label: string; value: string }) {
   return (
-    <div className="space-y-1.5 rounded-lg border border-white/5 bg-white/[0.02] p-3">
-      <div className="flex items-baseline justify-between">
-        <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-          {label}
-        </span>
-        <span
-          className="font-mono text-2xl font-semibold tabular-nums"
-          style={{ color: `oklch(${colorVar})` }}
-        >
-          {value}
-        </span>
-      </div>
-      <div className="h-1 overflow-hidden rounded-full bg-white/5">
-        <div
-          className="h-full"
-          style={{ width: `${Math.max(0, Math.min(100, pct))}%`, background: `oklch(${colorVar})` }}
-        />
-      </div>
-      <p className="text-[10px] text-muted-foreground">{sub}</p>
+    <div className="rounded-md border border-white/5 bg-white/[0.02] px-2 py-1.5">
+      <dt className="text-[9px] uppercase tracking-wider text-muted-foreground">{label}</dt>
+      <dd className="mt-0.5 tabular-nums text-foreground/90">{value}</dd>
     </div>
   );
+}
+
+function formatNumber(value: number | null | undefined, digits = 3): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return value.toFixed(digits);
 }
 
 // ---------------------------------------------------------------------------

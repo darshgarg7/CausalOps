@@ -1,7 +1,6 @@
 import { forwardRef } from "react";
 import { Boxes, GitBranch, Network } from "lucide-react";
 
-import type { EdgeAnnotation } from "@/lib/agent-runtime";
 import type { CausalGraph } from "@/lib/causalops-types";
 import { cn } from "@/lib/utils";
 import { CausalGraphPanel } from "./CausalGraphPanel";
@@ -11,11 +10,10 @@ import { SpatiotemporalKGPanel } from "./SpatiotemporalKGPanel";
 interface GraphWorkspaceProps {
   graph: CausalGraph;
   runId: string;
-  edgeAnnotations?: EdgeAnnotation[];
 }
 
 export const GraphWorkspace = forwardRef<CausalGraphHandle, GraphWorkspaceProps>(
-  function GraphWorkspace({ graph, runId, edgeAnnotations }, ref) {
+  function GraphWorkspace({ graph, runId }, ref) {
     const nodes = graph.nodes ?? [];
     const edges = graph.edges ?? [];
     const isSparse = nodes.length > 0 && nodes.length <= 6;
@@ -55,7 +53,7 @@ export const GraphWorkspace = forwardRef<CausalGraphHandle, GraphWorkspaceProps>
           </div>
         </div>
 
-        <div className="grid gap-4 2xl:grid-cols-[minmax(0,0.62fr)_minmax(360px,0.38fr)]">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,0.62fr)_minmax(320px,0.38fr)] 2xl:grid-cols-[minmax(0,1fr)_560px]">
           <div className="min-w-0 space-y-2" data-testid="primary-5d-kg">
             <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.22em] text-[color:var(--neon-violet)]">
               <Boxes className="h-3.5 w-3.5" aria-hidden />
@@ -69,7 +67,7 @@ export const GraphWorkspace = forwardRef<CausalGraphHandle, GraphWorkspaceProps>
               <GitBranch className="h-3.5 w-3.5" aria-hidden />
               Evidence DAG Context
             </div>
-            <CausalGraphPanel ref={ref} graph={graph} edgeAnnotations={edgeAnnotations} compact />
+            <CausalGraphPanel ref={ref} graph={graph} compact />
           </div>
         </div>
       </section>
